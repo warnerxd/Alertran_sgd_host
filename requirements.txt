@@ -1,0 +1,13 @@
+# API
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+
+# Automatización de navegador
+playwright>=1.40.0
+
+# Excel
+openpyxl>=3.1.2
+
+# Credenciales seguras
+keyring>=24.0.0

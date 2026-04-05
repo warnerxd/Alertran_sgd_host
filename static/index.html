@@ -1,0 +1,1817 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ALERTRAN SGD</title>
+  <meta name="theme-color" content="#6366f1"/>
+  <link rel="manifest" href="/static/manifest.json"/>
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png"/>
+  <link rel="stylesheet" href="static/style.css?v=3"/>
+  <style>
+    /* ── Responsive crítico (inline para evitar caché del SW) ── */
+
+    /* HISTORIAL STATS ≤ 850px: 3 columnas */
+    @media (max-width: 850px) {
+      .hist-stats { grid-template-columns: repeat(3, 1fr) !important; gap: 6px; }
+      .hist-stat  { padding: 10px 8px; }
+      .hist-stat .hs-val { font-size: 22px; }
+      .hist-stat .hs-lbl { font-size: 10px; letter-spacing: 0; }
+    }
+
+    /* HEADER ≤ 750px: 2 filas */
+    @media (max-width: 750px) {
+      header {
+        display: grid !important;
+        width: 100% !important;
+        grid-template-columns: auto auto 1fr auto;
+        grid-template-rows: auto auto;
+        gap: 8px;
+        padding: 10px 14px !important;
+        box-sizing: border-box;
+      }
+      header .logo         { grid-column: 1; grid-row: 1; font-size: 15px; white-space: nowrap; }
+      header .badge        { grid-column: 2; grid-row: 1; align-self: center; font-size: 10px; padding: 2px 6px; }
+      header .status-dot   { grid-column: 3; grid-row: 1; margin-left: 0 !important; font-size: 11px; justify-content: flex-end; }
+      header .theme-toggle { grid-column: 4; grid-row: 1; margin-left: 0 !important; }
+      header .header-account  { grid-column: 1 / 3; grid-row: 2; border-radius: 8px; font-size: 12px; justify-content: flex-start; }
+      header .btn-session-end { grid-column: 3 / 5; grid-row: 2; margin-left: 0 !important; font-size: 11px; padding: 5px 8px; text-align: center; }
+      .tabs { padding: 8px 10px 0; gap: 2px; }
+      .tab  { flex: 1; text-align: center; padding: 8px 4px; font-size: 12px; white-space: nowrap; min-width: 0; }
+    }
+
+    /* HISTORIAL STATS ≤ 420px: 2 columnas, "Todos" ancho completo */
+    @media (max-width: 420px) {
+      .hist-stats { grid-template-columns: repeat(2, 1fr) !important; }
+      .hist-stat:first-child { grid-column: 1 / -1; }
+    }
+  </style>
+  <script>
+    // Aplicar tema antes de renderizar para evitar flash
+    (function(){
+      const s = localStorage.getItem('alertran_theme');
+      if (s === 'dark') document.documentElement.classList.add('dark');
+    })();
+  </script>
+</head>
+<body>
+
+<header>
+  <div class="logo">⚡ ALERTRAN SGD</div>
+  <div class="badge">API v1.0</div>
+  <div class="status-dot">
+    <div class="dot" id="apiDot"></div>
+    <span id="apiStatus">Verificando...</span>
+  </div>
+  <button class="header-account" id="headerAccount" onclick="abrirLogin()" title="Cambiar cuenta">
+    <span class="account-icon">👤</span>
+    <span id="headerUsuario">Sin sesión</span>
+  </button>
+  <button class="btn-session-end" id="btnSesion" onclick="finalizarSesion()" title="Limpiar viajes procesados y reiniciar sesión">
+    ⏏ Finalizar sesión
+  </button>
+  <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Cambiar tema"></button>
+</header>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('desviaciones')">📦 Desviaciones</div>
+  <div class="tab" onclick="switchTab('viajes')">🚚 Viajes</div>
+  <div class="tab" onclick="switchTab('historial')">🗂️ Historial</div>
+</div>
+
+<div class="content">
+
+  <!-- ═══════════════ DESVIACIONES ═══════════════ -->
+  <div class="panel active" id="panel-desviaciones">
+
+    <!-- Formulario -->
+    <div class="card">
+      <h3>Configuración</h3>
+
+      <div class="form-group">
+        <label>Ciudad</label>
+        <select id="d-ciudad"></select>
+      </div>
+
+      <div class="row">
+        <div class="form-group">
+          <label>Tipo de incidencia</label>
+          <select id="d-tipo"></select>
+        </div>
+        <div class="form-group">
+          <label>Navegadores paralelos</label>
+          <input type="number" id="d-navs" value="1" min="1" max="100"/>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Ampliación / observaciones</label>
+        <textarea id="d-ampliacion" placeholder="Texto libre..."></textarea>
+      </div>
+
+      <div class="toggle-group">
+        <label class="toggle"><input type="checkbox" id="d-headless" checked/><span class="slider"></span></label>
+        <span class="toggle-label">Modo headless (sin ventana navegador)</span>
+      </div>
+
+      <!-- Fuente de guías -->
+      <h3 style="margin-top:10px;">Fuente de guías</h3>
+
+      <div class="toggle-group" style="margin-bottom:12px;">
+        <label class="toggle"><input type="checkbox" id="d-useExcel" onchange="toggleFuente()"/><span class="slider"></span></label>
+        <span class="toggle-label">Cargar desde Excel</span>
+      </div>
+
+      <!-- Lista manual -->
+      <div id="d-manual">
+        <div class="form-group">
+          <label>Guías (una por línea)</label>
+          <textarea id="d-guias" placeholder="123456789&#10;987654321&#10;..." style="min-height:110px;"></textarea>
+        </div>
+      </div>
+
+      <!-- Excel upload -->
+      <div id="d-excel" style="display:none;">
+        <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()"
+          ondragover="event.preventDefault();this.classList.add('drag')"
+          ondragleave="this.classList.remove('drag')"
+          ondrop="handleDrop(event)">
+          <div class="icon">📊</div>
+          <p>Arrastra tu Excel aquí o haz clic para seleccionar</p>
+          <div class="filename" id="fileName"></div>
+        </div>
+        <input type="file" id="fileInput" accept=".xlsx,.xls" onchange="handleFile(this)"/>
+      </div>
+
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-primary" id="btnIniciar" onclick="iniciarDesviaciones()" style="flex:1;">
+          ▶ Iniciar procesamiento
+        </button>
+        <button class="btn btn-test" id="btnTestD" onclick="probarConexion('d')" title="Verificar credenciales y conexión al sistema">
+          🔌 Probar
+        </button>
+      </div>
+    </div>
+
+    <!-- Monitor -->
+    <div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="monitor-header">
+          <h3>Monitor</h3>
+          <div id="d-badge" class="status-badge pending">● Inactivo</div>
+        </div>
+
+        <div class="progress-wrap">
+          <div class="progress-info">
+            <span id="d-estado">Esperando...</span>
+            <span id="d-pct">0%</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill" id="d-bar"></div></div>
+        </div>
+
+        <div id="d-tiempo" style="font-size:12px;color:var(--muted);margin-bottom:8px;"></div>
+
+        <div class="log-wrap">
+          <div class="log-toolbar">
+            <button class="log-filter-btn f-all active"     onclick="setLogFilter('d','all')">Todos</button>
+            <button class="log-filter-btn f-success"        onclick="setLogFilter('d','success')">✅</button>
+            <button class="log-filter-btn f-error"          onclick="setLogFilter('d','error')">❌</button>
+            <button class="log-filter-btn f-warn"           onclick="setLogFilter('d','warn')">⚠️</button>
+            <button class="log-filter-btn f-info"           onclick="setLogFilter('d','info')">ℹ️</button>
+            <button class="log-scroll-lock" id="d-lock" onclick="toggleScrollLock('d')" title="Bloquear scroll">📌 Bloquear</button>
+          </div>
+          <div class="log-box" id="d-log"><div class="log-line info">// Logs aparecerán aquí...</div></div>
+        </div>
+
+        <button class="btn btn-danger" id="btnCancelar" onclick="cancelarJob('d')" disabled style="margin-top:12px;">
+          ⬛ Cancelar
+        </button>
+      </div>
+
+      <div class="card" id="d-results" style="display:none;">
+        <h3>Resultados</h3>
+        <div class="results-grid">
+          <div class="result-item"><div class="val green" id="r-creadas">0</div><div class="lbl">Creadas</div></div>
+          <div class="result-item"><div class="val blue"  id="r-ent">0</div><div class="lbl">ENT (omitidas)</div></div>
+          <div class="result-item"><div class="val red"   id="r-errores">0</div><div class="lbl">Errores</div></div>
+          <div class="result-item"><div class="val yellow" id="r-adverts">0</div><div class="lbl">Advertencias</div></div>
+        </div>
+        <div style="margin-top:12px;font-size:13px;color:var(--muted);">
+          ⏱️ Tiempo total: <span id="r-tiempo" style="color:var(--text);font-weight:600;"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ VIAJES ═══════════════ -->
+  <div class="panel" id="panel-viajes">
+
+    <div class="card">
+      <h3>Configuración global</h3>
+
+      <div class="form-group">
+        <label>Ciudad</label>
+        <select id="v-ciudad"></select>
+      </div>
+
+      <div class="row">
+        <div class="form-group">
+          <label>Código de desviación</label>
+          <select id="v-tipo"></select>
+        </div>
+        <div class="form-group">
+          <label>Página inicio (checkpoint)</label>
+          <input type="number" id="v-pagina" value="1" min="1"/>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Observaciones globales</label>
+        <textarea id="v-obs" placeholder="Texto libre..."></textarea>
+      </div>
+
+      <div class="row">
+        <div class="form-group">
+          <label>Navegadores</label>
+          <input type="number" id="v-navs" value="1" min="1" max="10"/>
+        </div>
+        <div class="form-group" style="display:flex;align-items:flex-end;padding-bottom:2px;">
+          <div class="toggle-group" style="margin:0;">
+            <label class="toggle"><input type="checkbox" id="v-headless" checked/><span class="slider"></span></label>
+            <span class="toggle-label">Modo headless</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cola de viajes -->
+      <h3 style="margin-top:6px;">Cola de viajes</h3>
+
+      <div class="queue-input-row">
+        <input type="text" id="vt-input" placeholder="Número de viaje / carta porte..."
+               onkeydown="if(event.key==='Enter')vtAgregar()"/>
+        <button class="btn-add" onclick="vtAgregar()" title="Agregar">+</button>
+      </div>
+
+      <div id="vt-retry-banner" class="retry-banner" style="display:none;">
+        ⚠️ <span id="vt-retry-txt">1 viaje(s) no completado(s)</span>
+        <button class="btn-retry-all" onclick="vtReintentar()">↩ Reintentar todos</button>
+      </div>
+
+      <div class="vt-wrapper" id="vt-wrapper">
+        <div class="vt-empty">Sin viajes en la cola. Agrega uno arriba.</div>
+      </div>
+
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-primary" id="btnViajeIniciar" onclick="iniciarViaje()" style="flex:1;">
+          ▶ Iniciar procesamiento
+        </button>
+        <button class="btn btn-test" id="btnTestV" onclick="probarConexion('v')" title="Verificar credenciales y conexión al sistema">
+          🔌 Probar
+        </button>
+      </div>
+    </div>
+
+    <!-- Monitor viaje -->
+    <div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="monitor-header">
+          <h3>Monitor</h3>
+          <div id="v-badge" class="status-badge pending">● Inactivo</div>
+        </div>
+
+        <div class="progress-wrap">
+          <div class="progress-info">
+            <span id="v-estado">Esperando...</span>
+            <span id="v-pct">0%</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill" id="v-bar"></div></div>
+        </div>
+
+        <div id="v-tiempo" style="font-size:12px;color:var(--muted);margin-bottom:8px;"></div>
+
+        <div class="log-wrap">
+          <div class="log-toolbar">
+            <button class="log-filter-btn f-all active"     onclick="setLogFilter('v','all')">Todos</button>
+            <button class="log-filter-btn f-success"        onclick="setLogFilter('v','success')">✅</button>
+            <button class="log-filter-btn f-error"          onclick="setLogFilter('v','error')">❌</button>
+            <button class="log-filter-btn f-warn"           onclick="setLogFilter('v','warn')">⚠️</button>
+            <button class="log-filter-btn f-info"           onclick="setLogFilter('v','info')">ℹ️</button>
+            <button class="log-scroll-lock" id="v-lock" onclick="toggleScrollLock('v')" title="Bloquear scroll">📌 Bloquear</button>
+          </div>
+          <div class="log-box" id="v-log"><div class="log-line info">// Logs aparecerán aquí...</div></div>
+        </div>
+
+        <button class="btn btn-danger" id="btnVCancelar" onclick="cancelarJob('v')" disabled style="margin-top:12px;">
+          ⬛ Cancelar
+        </button>
+      </div>
+
+      <div class="card" id="v-results" style="display:none;">
+        <h3>Resultados</h3>
+        <div class="results-grid" style="grid-template-columns:1fr 1fr 1fr;">
+          <div class="result-item"><div class="val green" id="vr-completados">0</div><div class="lbl">Completados</div></div>
+          <div class="result-item"><div class="val blue"  id="vr-total-viajes">0</div><div class="lbl">Total</div></div>
+          <div class="result-item"><div class="val red"   id="vr-errores">0</div><div class="lbl">Errores</div></div>
+        </div>
+        <div style="margin-top:12px;font-size:13px;color:var(--muted);">
+          ⏱️ Tiempo total: <span id="vr-tiempo" style="color:var(--text);font-weight:600;"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ HISTORIAL ═══════════════ -->
+  <div class="panel historial" id="panel-historial">
+    <div class="card">
+      <div class="monitor-header">
+        <h3>Jobs de esta sesión</h3>
+        <button class="btn btn-primary" style="width:auto;padding:7px 16px;font-size:13px;" onclick="cargarHistorial()">🔄 Actualizar</button>
+      </div>
+
+      <!-- Stat chips filtrables -->
+      <div class="hist-stats" id="hist-stats" style="margin-top:14px;">
+        <div class="hist-stat s-all active" onclick="histFiltrar('')">
+          <div class="hs-val" id="hs-total">0</div><div class="hs-lbl">Todos</div>
+        </div>
+        <div class="hist-stat s-comp" onclick="histFiltrar('completed')">
+          <div class="hs-val" id="hs-completed">0</div><div class="hs-lbl">✅ Completados</div>
+        </div>
+        <div class="hist-stat s-run" onclick="histFiltrar('running')">
+          <div class="hs-val" id="hs-running">0</div><div class="hs-lbl">🔄 Activos</div>
+        </div>
+        <div class="hist-stat s-err" onclick="histFiltrar('error')">
+          <div class="hs-val" id="hs-error">0</div><div class="hs-lbl">❌ Errores</div>
+        </div>
+        <div class="hist-stat s-canc" onclick="histFiltrar('cancelled')">
+          <div class="hs-val" id="hs-cancelled">0</div><div class="hs-lbl">⬛ Cancelados</div>
+        </div>
+      </div>
+
+      <div id="historial-list" style="margin-top:8px;"><div class="empty-state">Sin jobs registrados aún.</div></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══════ MODAL login ══════ -->
+<div class="modal-overlay" id="login-modal">
+  <div class="modal-box login-modal-box" onclick="event.stopPropagation()">
+    <div class="login-logo">⚡</div>
+    <h3 class="login-title">Iniciar sesión</h3>
+    <p class="login-sub">Ingresa tus credenciales de ALERTRAN</p>
+
+    <div class="form-group" style="margin-top:20px;">
+      <label>Usuario</label>
+      <input type="text" id="login-usuario" placeholder="usuario alertran"
+             autocomplete="username" onkeydown="if(event.key==='Enter')document.getElementById('login-password').focus()"/>
+    </div>
+    <div class="form-group" style="margin-top:12px;">
+      <label>Contraseña</label>
+      <input type="password" id="login-password" placeholder="••••••••"
+             autocomplete="current-password" onkeydown="if(event.key==='Enter')loginConfirmar()"/>
+    </div>
+
+    <div class="toggle-group" style="margin:14px 0 0;">
+      <label class="toggle">
+        <input type="checkbox" id="login-recordar" checked/>
+        <span class="slider"></span>
+      </label>
+      <span class="toggle-label" style="font-size:13px;">Recordar credenciales</span>
+    </div>
+
+    <button class="btn btn-primary" style="width:100%;margin-top:20px;" onclick="loginConfirmar()">
+      Ingresar
+    </button>
+  </div>
+</div>
+
+<!-- ══════ MODAL checkpoint ══════ -->
+<div class="modal-overlay" id="cp-modal" style="display:none;">
+  <div class="modal-box cp-modal-box" onclick="event.stopPropagation()">
+    <div class="cp-icon" id="cp-icon">⬛</div>
+    <h3 id="cp-title">Viaje cancelado</h3>
+    <p class="cp-viaje-num" id="cp-viaje-num"></p>
+
+    <div class="cp-stats">
+      <div class="cp-stat">
+        <div class="cp-stat-val" id="cp-paginas-ok">—</div>
+        <div class="cp-stat-lbl">Páginas procesadas</div>
+      </div>
+      <div class="cp-stat">
+        <div class="cp-stat-val" id="cp-paginas-total">—</div>
+        <div class="cp-stat-lbl">Total páginas</div>
+      </div>
+      <div class="cp-stat">
+        <div class="cp-stat-val" id="cp-next-page">—</div>
+        <div class="cp-stat-lbl">Reanuda desde</div>
+      </div>
+    </div>
+
+    <div class="cp-info" id="cp-info">
+      💾 Checkpoint guardado. Podés continuar desde donde quedó sin reprocesar páginas ya completadas.
+    </div>
+
+    <div class="modal-footer cp-footer">
+      <button class="btn btn-secondary" onclick="cpDescartar()">✕ Descartar</button>
+      <button class="btn btn-warning" onclick="cpDesdeInicio()">↺ Desde el inicio</button>
+      <button class="btn btn-primary" id="cp-btn-reanudar" onclick="cpReanudar()">▶ Reanudar pág. <span id="cp-btn-pag">?</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ MODAL config por viaje ══════ -->
+<div class="modal-overlay" id="vt-modal" style="display:none;" onclick="closeConfigModal(event)">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <h3>⚙️ Config — viaje <span id="modal-viaje-num"></span></h3>
+    <p class="modal-note">Dejá un campo vacío para heredar el valor global de la izquierda.</p>
+    <div class="form-group">
+      <label>Ciudad (override)</label>
+      <select id="modal-ciudad"><option value="">— usar global —</option></select>
+    </div>
+    <div class="form-group">
+      <label>Código de desviación (override)</label>
+      <select id="modal-tipo"><option value="">— usar global —</option></select>
+    </div>
+    <div class="form-group">
+      <label>Observaciones (override)</label>
+      <textarea id="modal-obs" placeholder="Dejar vacío para usar la global..."></textarea>
+    </div>
+    <div class="form-group">
+      <label>Página inicio (checkpoint)</label>
+      <input type="number" id="modal-pagina" value="" min="1" placeholder="— usar global —"/>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeConfigModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarConfigModal()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  // URL base dinámica: funciona en localhost Y en producción bajo cualquier subpath
+  const _basePath = window.location.pathname.replace(/\/$/, '').replace(/\/index\.html$/, '');
+  const API = window.location.origin + _basePath;
+  const WS_PROTO = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const WS_BASE  = `${WS_PROTO}//${location.host}${_basePath}`;
+  let currentJob = { d: null, v: null };
+  let ws = { d: null, v: null };
+  let selectedFile = null;
+
+  // ── Cola de viajes (setup pre-procesamiento) ──────────────────────────────
+  // vtItems: [{numero, config:{ciudad,tipo,observaciones,pagina_inicio}}]
+  let vtItems = [];
+  let vtDragSrc = null;
+  let vtModalNum = null;   // número del viaje que tiene el modal abierto
+
+  // Estado durante procesamiento
+  let viajeQueue = [];         // copia ordenada de numeros al arrancar
+  let viajeResultados = {};    // {numero: {status, paginas, total, startTime}}
+  let viajeQueueIdx = 0;
+  let viajeQueueTotal = 0;
+  let viajeQueueStartTime = null;
+  let vtTimerInterval = null;  // interval para relojes de tarjetas
+  let histFiltroActivo = '';
+
+  // ── Finalizar sesión ─────────────────────────────────────────────────────
+  let _sesionConfirmTimer = null;
+
+  function finalizarSesion() {
+    const btn = document.getElementById('btnSesion');
+
+    // Doble clic para confirmar
+    if (!btn.classList.contains('confirming')) {
+      btn.classList.add('confirming');
+      btn.textContent = '¿Confirmar?';
+      clearTimeout(_sesionConfirmTimer);
+      _sesionConfirmTimer = setTimeout(() => {
+        btn.classList.remove('confirming');
+        btn.textContent = '⏏ Finalizar sesión';
+      }, 3000);
+      return;
+    }
+
+    // Confirmado — limpiar sesión
+    clearTimeout(_sesionConfirmTimer);
+    btn.classList.remove('confirming');
+    btn.textContent = '⏏ Finalizar sesión';
+
+    // Cancelar job activo si hay uno
+    if (currentJob.v && ws.v) { ws.v.close(); currentJob.v = null; }
+    if (currentJob.d && ws.d) { ws.d.close(); currentJob.d = null; }
+
+    // Limpiar cola y estado de viajes
+    vtItems = [];
+    viajeQueue = [];
+    viajeResultados = {};
+    viajeQueueIdx = 0;
+    viajeQueueTotal = 0;
+    clearInterval(vtTimerInterval);
+
+    // Limpiar pausa de modal si estaba activa
+    _cpQueueResume = false;
+    _cpModalNum = null;
+    document.getElementById('cp-modal').style.display = 'none';
+
+    // Resetear panel de viajes
+    renderVtSetup();
+    resetMonitor('v');
+    resetMonitor('d');
+    document.getElementById('vt-retry-banner').style.display = 'none';
+    document.getElementById('v-results').style.display = 'none';
+    document.getElementById('d-results').style.display = 'none';
+    document.getElementById('btnViajeIniciar').disabled = false;
+    document.getElementById('btnVCancelar').disabled = true;
+    document.getElementById('btnIniciar').disabled = false;
+    document.getElementById('btnCancelar').disabled = true;
+    setBadge('v', 'pending');
+    setBadge('d', 'pending');
+
+    // Historial — limpiar vista local (no borra del servidor)
+    _histJobs = [];
+    renderHistorial([]);
+    document.getElementById('hs-total').textContent     = '0';
+    document.getElementById('hs-completed').textContent = '0';
+    document.getElementById('hs-running').textContent   = '0';
+    document.getElementById('hs-error').textContent     = '0';
+    document.getElementById('hs-cancelled').textContent = '0';
+
+    toast('Sesión finalizada — lista de viajes limpiada', 'success');
+  }
+
+  // ── Tema claro / oscuro ───────────────────────────────────────────────────
+  function toggleTheme() {
+    const isDark = document.documentElement.classList.toggle('dark');
+    localStorage.setItem('alertran_theme', isDark ? 'dark' : 'light');
+  }
+
+  function applyTheme() {
+    const saved = localStorage.getItem('alertran_theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (saved === 'dark' || (!saved && prefersDark)) {
+      document.documentElement.classList.add('dark');
+    }
+  }
+
+  // ── Inicialización ────────────────────────────────────────────────────────
+  async function init() {
+    await checkApi();
+    await loadConfig();   // cargarCredenciales() se llama dentro
+    actualizarPingBotones();
+    setInterval(actualizarPingBotones, 30000);
+    // Si no hay credenciales guardadas, abrir modal de login
+    if (!_credUsuario) abrirLogin();
+  }
+
+  function pingLabel(ms) {
+    const p = String(ms).padStart(3, '0');
+    if (ms > 550) return `🔴 ${p}ms`;
+    if (ms > 300) return `⚠️ ${p}ms`;
+    if (ms > 100) return `🟢 ${p}ms`;
+    return `🟢 ${p}ms`;  // < 100ms: excelente
+  }
+
+  async function actualizarPingBotones() {
+    try {
+      const ping = await medirPing();
+      const label = pingLabel(ping);
+      ['btnTestD', 'btnTestV'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn && !btn.disabled) btn.textContent = label;
+      });
+    } catch { /* sin conexión — dejar como está */ }
+  }
+
+  async function checkApi() {
+    try {
+      const r = await fetch(`${API}/`);
+      if (r.ok) {
+        document.getElementById('apiDot').className = 'dot online';
+        document.getElementById('apiStatus').textContent = 'API conectada';
+      }
+    } catch {
+      document.getElementById('apiStatus').textContent = 'API no disponible';
+    }
+  }
+
+  // ── Credenciales globales ─────────────────────────────────────────────────
+  const CREDS_KEY = 'alertran_creds';
+  let _credUsuario = '';
+  let _credPassword = '';
+
+  function abrirLogin() {
+    document.getElementById('login-modal').style.display = 'flex';
+    setTimeout(() => document.getElementById('login-usuario').focus(), 50);
+  }
+
+  function loginConfirmar() {
+    const u = document.getElementById('login-usuario').value.trim();
+    const p = document.getElementById('login-password').value.trim();
+    if (!u || !p) { toast('Ingresa usuario y contraseña', 'error'); return; }
+    _credUsuario  = u;
+    _credPassword = p;
+    document.getElementById('login-modal').style.display = 'none';
+    document.getElementById('headerUsuario').textContent = u;
+    if (document.getElementById('login-recordar').checked) guardarCredenciales();
+    toast(`Sesión iniciada como ${u}`, 'success');
+  }
+
+  function guardarCredenciales() {
+    const creds = {
+      usuario:  _credUsuario  || document.getElementById('login-usuario').value,
+      password: _credPassword || document.getElementById('login-password').value,
+      d_ciudad: document.getElementById('d-ciudad').value,
+      v_ciudad: document.getElementById('v-ciudad').value,
+    };
+    localStorage.setItem(CREDS_KEY, JSON.stringify(creds));
+  }
+
+  function cargarCredenciales() {
+    try {
+      const raw = localStorage.getItem(CREDS_KEY);
+      if (!raw) return null;
+      const c = JSON.parse(raw);
+      if (c.usuario && c.password) {
+        _credUsuario  = c.usuario;
+        _credPassword = c.password;
+        document.getElementById('login-usuario').value  = c.usuario;
+        document.getElementById('login-password').value = c.password;
+        document.getElementById('headerUsuario').textContent = c.usuario;
+        document.getElementById('login-modal').style.display = 'none';
+      }
+      // Ciudad se aplica después de poblar el select en loadConfig
+      return c;
+    } catch { return null; }
+  }
+
+  async function loadConfig() {
+    try {
+      const r = await fetch(`${API}/config`);
+      const data = await r.json();
+      const saved = JSON.parse(localStorage.getItem(CREDS_KEY) || 'null');
+
+      ['d-ciudad','v-ciudad'].forEach(id => {
+        const sel = document.getElementById(id);
+        sel.innerHTML = data.ciudades.map(c => `<option value="${c}">${c}</option>`).join('');
+        // Intentar ciudad guardada, luego 000 CENTRAL, luego BOG
+        const key = id === 'd-ciudad' ? 'd_ciudad' : 'v_ciudad';
+        const savedCity = saved?.[key];
+        const central = [...sel.options].find(o => o.value.includes('000'));
+        const bog     = [...sel.options].find(o => o.value.includes('BOG'));
+        if (savedCity && [...sel.options].find(o => o.value === savedCity)) {
+          sel.value = savedCity;
+        } else if (central) {
+          sel.value = central.value;
+        } else if (bog) {
+          sel.value = bog.value;
+        }
+      });
+
+      ['d-tipo','v-tipo'].forEach(id => {
+        const sel = document.getElementById(id);
+        sel.innerHTML = data.tipos_incidencia.map(t => `<option value="${t}">${t}</option>`).join('');
+      });
+
+      const mCiudad = document.getElementById('modal-ciudad');
+      const mTipo   = document.getElementById('modal-tipo');
+      mCiudad.innerHTML = '<option value="">— usar global —</option>' +
+        data.ciudades.map(c => `<option value="${c}">${c}</option>`).join('');
+      mTipo.innerHTML = '<option value="">— usar global —</option>' +
+        data.tipos_incidencia.map(t => `<option value="${t}">${t}</option>`).join('');
+
+      // Cargar credenciales guardadas
+      cargarCredenciales();
+
+    } catch(e) {
+      toast('No se pudo conectar con la API', 'error');
+    }
+  }
+
+  // ── Tabs ──────────────────────────────────────────────────────────────────
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    event.target.classList.add('active');
+    document.getElementById('panel-' + name).classList.add('active');
+    if (name === 'historial') cargarHistorial();
+  }
+
+  function toggleFuente() {
+    const useExcel = document.getElementById('d-useExcel').checked;
+    document.getElementById('d-manual').style.display = useExcel ? 'none' : 'block';
+    document.getElementById('d-excel').style.display  = useExcel ? 'block' : 'none';
+  }
+
+  // ── Upload ────────────────────────────────────────────────────────────────
+  function handleFile(input) {
+    selectedFile = input.files[0];
+    document.getElementById('fileName').textContent = selectedFile ? `✅ ${selectedFile.name}` : '';
+  }
+  function handleDrop(e) {
+    e.preventDefault();
+    document.getElementById('uploadArea').classList.remove('drag');
+    selectedFile = e.dataTransfer.files[0];
+    document.getElementById('fileName').textContent = selectedFile ? `✅ ${selectedFile.name}` : '';
+    document.getElementById('fileInput').files = e.dataTransfer.files;
+  }
+
+  // ── Probar conexión ───────────────────────────────────────────────────────
+  async function medirPing() {
+    const t0 = performance.now();
+    await fetch(`${API}/`);
+    return Math.round(performance.now() - t0);
+  }
+
+  async function probarConexion(prefix) {
+    const usuario  = _credUsuario;
+    const password = _credPassword;
+    if (!usuario || !password) { abrirLogin(); toast('Inicia sesión primero', 'error'); return; }
+
+    const btnId = prefix === 'd' ? 'btnTestD' : 'btnTestV';
+    const btn   = document.getElementById(btnId);
+    btn.disabled = true;
+    btn.textContent = '⏳ Midiendo...';
+
+    resetMonitor(prefix);
+
+    // Medir ping primero
+    let ping = null;
+    try {
+      ping = await medirPing();
+      btn.textContent = pingLabel(ping);
+      if (ping > 300) {
+        addLog(prefix, `⚠️ Latencia alta: ${ping}ms — Se recomienda conectarse a red cableada o desactivar VPN`, 'warn');
+        toast(`Latencia alta: ${ping}ms — Usá red cableada o desactivá VPN`, 'error');
+      } else {
+        addLog(prefix, `🌐 Latencia servidor: ${ping}ms — OK`, 'info');
+      }
+    } catch(e) {
+      addLog(prefix, '❌ No se pudo alcanzar el servidor', 'error');
+      btn.disabled = false;
+      btn.textContent = '🔌 Probar';
+      return;
+    }
+
+    // Probar login + navegación
+    try {
+      const ciudad = document.getElementById(prefix === 'd' ? 'd-ciudad' : 'v-ciudad').value;
+      const body = { usuario, password, ciudad, tipo: '22', guias_list: [], num_navegadores: 1, headless: true, preview: true };
+      const r = await fetch(`${API}/desviaciones/procesar`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const { job_id } = await r.json();
+      currentJob[prefix] = job_id;
+      conectarWS(prefix, job_id);
+    } catch(e) {
+      toast('Error al probar conexión: ' + e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = ping !== null ? pingLabel(ping) : '🔌 Probar';
+    }
+  }
+
+  // ── Iniciar Desviaciones ──────────────────────────────────────────────────
+  async function iniciarDesviaciones() {
+    const useExcel = document.getElementById('d-useExcel').checked;
+    const usuario  = _credUsuario;
+    const password = _credPassword;
+
+    if (!usuario || !password) { abrirLogin(); toast('Inicia sesión primero', 'error'); return; }
+
+    resetMonitor('d');
+    document.getElementById('btnIniciar').disabled = true;
+    document.getElementById('btnCancelar').disabled = false;
+
+    let jobId;
+    try {
+      if (useExcel) {
+        if (!selectedFile) { toast('Selecciona un archivo Excel', 'error'); resetBtn('d'); return; }
+        const fd = new FormData();
+        fd.append('archivo', selectedFile);
+        fd.append('usuario', usuario);
+        fd.append('password', password);
+        fd.append('ciudad', document.getElementById('d-ciudad').value);
+        fd.append('tipo', document.getElementById('d-tipo').value);
+        fd.append('ampliacion', document.getElementById('d-ampliacion').value);
+        fd.append('num_navegadores', document.getElementById('d-navs').value);
+        fd.append('headless', document.getElementById('d-headless').checked);
+        const r = await fetch(`${API}/desviaciones/procesar-excel`, { method: 'POST', body: fd });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(`HTTP ${r.status}: ${JSON.stringify(err.detail ?? err)}`);
+        }
+        const data = await r.json();
+        jobId = data.job_id;
+      } else {
+        const guiasRaw = document.getElementById('d-guias').value.trim();
+        const guias = guiasRaw.split('\n').map(g => g.trim()).filter(Boolean);
+        if (!guias.length) { toast('Ingresa al menos una guía', 'error'); resetBtn('d'); return; }
+        const body = {
+          usuario, password,
+          ciudad: document.getElementById('d-ciudad').value,
+          tipo: document.getElementById('d-tipo').value,
+          ampliacion: document.getElementById('d-ampliacion').value,
+          guias_list: guias,
+          num_navegadores: parseInt(document.getElementById('d-navs').value),
+          headless: document.getElementById('d-headless').checked,
+        };
+        const r = await fetch(`${API}/desviaciones/procesar`, {
+          method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(`HTTP ${r.status}: ${JSON.stringify(err.detail ?? err)}`);
+        }
+        const data = await r.json();
+        jobId = data.job_id;
+      }
+    } catch(e) {
+      toast('Error al iniciar: ' + e.message, 'error');
+      resetBtn('d');
+      return;
+    }
+
+    currentJob.d = jobId;
+    toast(`Job iniciado: ${jobId.slice(0,8)}...`, 'success');
+    conectarWS('d', jobId);
+  }
+
+  // ══════════════════════════════════════════════════════
+  //  VIAJE QUEUE — setup (pre-procesamiento)
+  // ══════════════════════════════════════════════════════
+
+  function vtAgregar() {
+    const inp = document.getElementById('vt-input');
+    const num = inp.value.trim();
+    if (!num) return;
+    if (vtItems.find(i => i.numero === num)) {
+      toast(`Viaje ${num} ya está en la cola`, 'error'); inp.value = ''; return;
+    }
+    vtItems.push({ numero: num, config: { ciudad:'', tipo:'', observaciones:'', pagina_inicio:'' } });
+    inp.value = '';
+    renderVtSetup();
+    inp.focus();
+  }
+
+  function vtQuitar(num) {
+    vtItems = vtItems.filter(i => i.numero !== num);
+    renderVtSetup();
+  }
+
+  function renderVtSetup() {
+    const wrapper = document.getElementById('vt-wrapper');
+
+    if (!vtItems.length) {
+      wrapper.innerHTML = '<div class="vt-empty">Sin viajes en la cola. Agrega uno arriba.</div>';
+      return;
+    }
+
+    wrapper.innerHTML = vtItems.map((it, idx) => {
+      const hasCustom = !!(it.config.ciudad || it.config.tipo || it.config.observaciones || it.config.pagina_inicio);
+      return `
+        <div class="vt-item" data-idx="${idx}" draggable="true">
+          <span class="drag-handle" title="Arrastrar para reordenar">⠿</span>
+          <span class="vt-node ${hasCustom ? 'custom' : 'pending'}"></span>
+          <span class="vt-number ${hasCustom ? 'custom' : ''}">${escHtml(it.numero)}</span>
+          <button class="icon-btn ib-accent" title="Configurar" onclick="openConfigModal('${escHtml(it.numero)}')">⚙</button>
+          <button class="icon-btn ib-danger" title="Quitar" onclick="vtQuitar('${escHtml(it.numero)}')">✕</button>
+        </div>`;
+    }).join('');
+
+    // Adjuntar eventos drag a cada elemento
+    wrapper.querySelectorAll('.vt-item[data-idx]').forEach(el => {
+      const idx = parseInt(el.dataset.idx);
+      el.addEventListener('dragstart', e => {
+        vtDragSrc = idx;
+        e.dataTransfer.effectAllowed = 'move';
+        setTimeout(() => el.style.opacity = '0.4', 0);
+      });
+      el.addEventListener('dragend', () => { el.style.opacity = '1'; vtDragSrc = null; });
+      el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drag-over'); });
+      el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+      el.addEventListener('drop', e => {
+        e.preventDefault(); el.classList.remove('drag-over');
+        if (vtDragSrc === null || vtDragSrc === idx) return;
+        const [moved] = vtItems.splice(vtDragSrc, 1);
+        vtItems.splice(idx, 0, moved);
+        renderVtSetup();
+      });
+    });
+  }
+
+  // ── Modal config por viaje ─────────────────────────────────────────────────
+
+  function openConfigModal(num) {
+    vtModalNum = num;
+    const it = vtItems.find(i => i.numero === num);
+    if (!it) return;
+    document.getElementById('modal-viaje-num').textContent = num;
+    document.getElementById('modal-ciudad').value  = it.config.ciudad || '';
+    document.getElementById('modal-tipo').value    = it.config.tipo || '';
+    document.getElementById('modal-obs').value     = it.config.observaciones || '';
+    document.getElementById('modal-pagina').value  = it.config.pagina_inicio || '';
+    document.getElementById('vt-modal').style.display = 'flex';
+  }
+
+  function closeConfigModal(e) {
+    if (e && e.target !== document.getElementById('vt-modal')) return;
+    document.getElementById('vt-modal').style.display = 'none';
+    vtModalNum = null;
+  }
+
+  function guardarConfigModal() {
+    if (!vtModalNum) return;
+    const it = vtItems.find(i => i.numero === vtModalNum);
+    if (it) {
+      it.config.ciudad       = document.getElementById('modal-ciudad').value;
+      it.config.tipo         = document.getElementById('modal-tipo').value;
+      it.config.observaciones= document.getElementById('modal-obs').value;
+      it.config.pagina_inicio= document.getElementById('modal-pagina').value;
+    }
+    document.getElementById('vt-modal').style.display = 'none';
+    vtModalNum = null;
+    renderVtSetup();
+    toast('Configuración guardada', 'success');
+  }
+
+  // ── Iniciar procesamiento ──────────────────────────────────────────────────
+
+  async function iniciarViaje() {
+    const usuario = _credUsuario;
+    const password = _credPassword;
+    if (!usuario || !password) { abrirLogin(); toast('Inicia sesión primero', 'error'); return; }
+    if (!vtItems.length) { toast('Agrega al menos un viaje a la cola', 'error'); return; }
+
+    // Bloquear controles setup
+    document.getElementById('vt-input').disabled = true;
+    document.getElementById('vt-retry-banner').style.display = 'none';
+    document.getElementById('v-results').style.display = 'none';
+
+    // Inicializar estado de cola
+    // Si hay resultados previos (reintento), solo encolar los que están en pending
+    const hayResultados = Object.keys(viajeResultados).length > 0;
+    if (hayResultados) {
+      viajeQueue = vtItems.map(i => i.numero).filter(n => viajeResultados[n]?.status === 'pending');
+    } else {
+      viajeQueue = vtItems.map(i => i.numero);
+      viajeQueue.forEach(n => { viajeResultados[n] = { status: 'pending', paginas: 0, total: 0, startTime: null, checkpoint_pagina: 0 }; });
+    }
+    if (!viajeQueue.length) { toast('No hay viajes pendientes para procesar', 'error'); return; }
+    viajeQueueIdx   = 0;
+    viajeQueueTotal = viajeQueue.length;
+    viajeQueueStartTime = Date.now();
+
+    resetMonitor('v');
+    document.getElementById('btnViajeIniciar').disabled = true;
+    document.getElementById('btnVCancelar').disabled = false;
+
+    // Timer de relojes
+    clearInterval(vtTimerInterval);
+    vtTimerInterval = setInterval(vtTickTimers, 1000);
+
+    renderVtProcess();
+    await procesarSiguienteViaje();
+  }
+
+  async function procesarSiguienteViaje() {
+    if (viajeQueueIdx >= viajeQueueTotal) {
+      finalizarColaViajes(); return;
+    }
+    const num = viajeQueue[viajeQueueIdx];
+    viajeResultados[num].status = 'running';
+    viajeResultados[num].startTime = Date.now();
+    renderVtProcess();
+    updateEstado('v', `Procesando ${viajeQueueIdx + 1}/${viajeQueueTotal}: ${num}`);
+
+    // Resolver config (override o global)
+    const it = vtItems.find(i => i.numero === num) || { config: {} };
+    const cfg = it.config;
+    const body = {
+      usuario:           _credUsuario,
+      password:          _credPassword,
+      ciudad:            cfg.ciudad  || document.getElementById('v-ciudad').value,
+      numero_viaje:      num,
+      codigo_desviacion: cfg.tipo    || document.getElementById('v-tipo').value,
+      observaciones:     cfg.observaciones || document.getElementById('v-obs').value,
+      num_navegadores:   parseInt(document.getElementById('v-navs').value),
+      headless:          document.getElementById('v-headless').checked,
+      pagina_inicio:     parseInt(cfg.pagina_inicio || document.getElementById('v-pagina').value) || 1,
+    };
+
+    try {
+      const r = await fetch(`${API}/viajes/procesar`, {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(`HTTP ${r.status}: ${JSON.stringify(err.detail ?? err)}`);
+      }
+      const data = await r.json();
+      currentJob.v = data.job_id;
+      toast(`Viaje ${num} iniciado (${viajeQueueIdx + 1}/${viajeQueueTotal})`, 'success');
+      conectarWS('v', data.job_id);
+    } catch(e) {
+      toast('Error iniciando viaje ' + num + ': ' + e.message, 'error');
+      viajeResultados[num].status = 'error';
+      viajeQueueIdx++;
+      renderVtProcess();
+      await procesarSiguienteViaje();
+    }
+  }
+
+  function finalizarColaViajes() {
+    clearInterval(vtTimerInterval);
+    const completados = Object.values(viajeResultados).filter(r => r.status === 'completed').length;
+    const errores     = Object.values(viajeResultados).filter(r => r.status === 'error').length;
+    const cancelados  = Object.values(viajeResultados).filter(r => r.status === 'cancelled').length;
+    const secs = Math.floor((Date.now() - viajeQueueStartTime) / 1000);
+    const tiempoStr = `${String(Math.floor(secs/3600)).padStart(2,'0')}:${String(Math.floor((secs%3600)/60)).padStart(2,'0')}:${String(secs%60).padStart(2,'0')}`;
+
+    setBadge('v', errores + cancelados === viajeQueueTotal ? 'error' : (errores > 0 || cancelados > 0 ? 'cancelled' : 'completed'));
+    resetBtn('v');
+    document.getElementById('vt-input').disabled = false;
+    renderVtProcess();
+
+    // Mostrar banner de reintento si hay errores
+    const noOk = errores + cancelados;
+    if (noOk > 0) {
+      document.getElementById('vt-retry-txt').textContent = `${noOk} viaje(s) no completado(s)`;
+      document.getElementById('vt-retry-banner').style.display = 'flex';
+      // Actualizar banner una vez que lleguen los checkpoints asincrónicos
+      setTimeout(actualizarRetryBanner, 2000);
+    }
+
+    document.getElementById('v-results').style.display = 'block';
+    document.getElementById('vr-completados').textContent = completados;
+    document.getElementById('vr-total-viajes').textContent = viajeQueueTotal;
+    document.getElementById('vr-errores').textContent = errores + cancelados;
+    document.getElementById('vr-tiempo').textContent = tiempoStr;
+    toast(`Cola completada: ${completados}/${viajeQueueTotal}`, completados === viajeQueueTotal ? 'success' : 'error');
+  }
+
+  function vtReintentar() {
+    const fallos = Object.entries(viajeResultados)
+      .filter(([, v]) => v.status === 'error' || v.status === 'cancelled')
+      .map(([n]) => n);
+    let cpCount = 0;
+    fallos.forEach(n => {
+      const cp = viajeResultados[n]?.checkpoint_pagina || 0;
+      const it = vtItems.find(i => i.numero === n);
+      if (it && cp > 0) { it.config.pagina_inicio = String(cp + 1); cpCount++; }
+    });
+    _prepararReintento(fallos);
+    const cpMsg = cpCount > 0 ? ` — ${cpCount} con checkpoint` : '';
+    toast(`${fallos.length} viaje(s) listos para reintentar${cpMsg}`, 'success');
+  }
+
+  // ── Checkpoint helpers ────────────────────────────────────────────────────
+
+  // Estado del modal de checkpoint
+  let _cpModalNum = null;
+  let _cpQueueResume = false;  // true = cola pausada esperando decisión del usuario
+
+  async function fetchCheckpoint(num, mostrarModal = true) {
+    try {
+      const r = await fetch(`${API}/viajes/checkpoint/${encodeURIComponent(num)}`);
+      if (!r.ok) return;
+      const data = await r.json();
+      if (data.tiene_checkpoint && viajeResultados[num] !== undefined) {
+        if (data.pagina_completada >= (viajeResultados[num].checkpoint_pagina || 0)) {
+          viajeResultados[num].checkpoint_pagina = data.pagina_completada;
+        }
+        renderVtProcess();
+        actualizarRetryBanner();
+        if (mostrarModal) abrirCpModal(num);
+      } else if (mostrarModal) {
+        // No hay checkpoint en disco — abrir igualmente con lo que vino por WS
+        const cp = viajeResultados[num]?.checkpoint_pagina || 0;
+        if (cp > 0) abrirCpModal(num);
+      }
+    } catch { /* ignorar */ }
+  }
+
+  function abrirCpModal(num) {
+    const info = viajeResultados[num] || {};
+    const cp   = info.checkpoint_pagina || 0;
+    const total = info.total || 0;
+    const status = info.status || 'cancelled';
+
+    _cpModalNum = num;
+
+    document.getElementById('cp-icon').textContent  = status === 'error' ? '❌' : '⬛';
+    document.getElementById('cp-title').textContent = status === 'error'
+      ? 'Error en el viaje' : 'Viaje cancelado';
+    document.getElementById('cp-viaje-num').textContent = `Carta porte / viaje: ${num}`;
+    document.getElementById('cp-paginas-ok').textContent  = cp > 0 ? cp : (info.paginas || 0);
+    document.getElementById('cp-paginas-total').textContent = total > 0 ? total : '—';
+
+    if (cp > 0) {
+      document.getElementById('cp-next-page').textContent = `pág. ${cp + 1}`;
+      document.getElementById('cp-btn-pag').textContent   = cp + 1;
+      document.getElementById('cp-btn-reanudar').disabled = false;
+      document.getElementById('cp-info').textContent =
+        `💾 Checkpoint guardado en página ${cp}. Podés continuar desde pág. ${cp + 1} sin reprocesar lo ya completado.`;
+    } else {
+      document.getElementById('cp-next-page').textContent = '—';
+      document.getElementById('cp-btn-pag').textContent   = '1';
+      document.getElementById('cp-btn-reanudar').disabled = true;
+      document.getElementById('cp-info').textContent =
+        '⚠️ No se encontró checkpoint guardado. Solo podés reiniciar desde el principio.';
+    }
+
+    document.getElementById('cp-modal').style.display = 'flex';
+  }
+
+  function cpDescartar() {
+    document.getElementById('cp-modal').style.display = 'none';
+    _cpModalNum = null;
+    if (_cpQueueResume) {
+      _cpQueueResume = false;
+      // Continuar con el siguiente viaje en cola (este se descarta)
+      if (viajeQueueIdx < viajeQueueTotal) setTimeout(() => procesarSiguienteViaje(), 800);
+      else finalizarColaViajes();
+    } else {
+      actualizarRetryBanner();
+    }
+  }
+
+  function cpReanudar() {
+    const num = _cpModalNum;
+    if (!num) return;
+    document.getElementById('cp-modal').style.display = 'none';
+    const info = viajeResultados[num] || {};
+    const cp   = info.checkpoint_pagina || 0;
+    const it   = vtItems.find(i => i.numero === num);
+    if (it && cp > 0) it.config.pagina_inicio = String(cp + 1);
+    _cpModalNum = null;
+    if (_cpQueueResume) {
+      // Cola pausada: reintenta este viaje en su posición y luego continúa
+      _cpQueueResume = false;
+      viajeResultados[num] = { status: 'pending', paginas: 0, total: 0, startTime: null, checkpoint_pagina: 0 };
+      viajeQueueIdx--;  // retroceder al índice de este viaje
+      renderVtProcess();
+      toast(`Viaje ${num} — reanudando desde pág. ${cp + 1}`, 'success');
+      setTimeout(() => procesarSiguienteViaje(), 800);
+    } else {
+      _prepararReintento([num]);
+      toast(`Viaje ${num} — reanudando desde pág. ${cp + 1}`, 'success');
+      setTimeout(() => iniciarViaje(), 600);
+    }
+  }
+
+  function cpDesdeInicio() {
+    const num = _cpModalNum;
+    if (!num) return;
+    document.getElementById('cp-modal').style.display = 'none';
+    const it = vtItems.find(i => i.numero === num);
+    if (it) it.config.pagina_inicio = '1';
+    _cpModalNum = null;
+    if (_cpQueueResume) {
+      // Cola pausada: reintenta desde pág 1 en su posición y luego continúa
+      _cpQueueResume = false;
+      viajeResultados[num] = { status: 'pending', paginas: 0, total: 0, startTime: null, checkpoint_pagina: 0 };
+      viajeQueueIdx--;
+      renderVtProcess();
+      toast(`Viaje ${num} — reiniciando desde pág. 1`, 'success');
+      setTimeout(() => procesarSiguienteViaje(), 800);
+    } else {
+      _prepararReintento([num]);
+      toast(`Viaje ${num} — reiniciando desde pág. 1`, 'success');
+      setTimeout(() => iniciarViaje(), 600);
+    }
+  }
+
+  function _prepararReintento(nums) {
+    // Solo resetear a pending los viajes indicados — NO tocar el resto de la cola
+    nums.forEach(n => {
+      viajeResultados[n] = { status: 'pending', paginas: 0, total: 0, startTime: null, checkpoint_pagina: 0 };
+    });
+    document.getElementById('vt-retry-banner').style.display = 'none';
+    renderVtSetup();
+    document.getElementById('btnViajeIniciar').disabled = false;
+    document.getElementById('btnVCancelar').disabled = true;
+    setBadge('v', 'pending');
+  }
+
+  function actualizarRetryBanner() {
+    const noOk = Object.entries(viajeResultados)
+      .filter(([, v]) => v.status === 'error' || v.status === 'cancelled');
+    if (!noOk.length) {
+      document.getElementById('vt-retry-banner').style.display = 'none';
+      return;
+    }
+    const conCp = noOk.filter(([, v]) => v.checkpoint_pagina > 0).length;
+    let txt = `${noOk.length} viaje(s) no completado(s)`;
+    if (conCp > 0) txt += ` — ${conCp} con checkpoint guardado`;
+    document.getElementById('vt-retry-txt').textContent = txt;
+  }
+
+  function vtReintentarUno(num) {
+    abrirCpModal(num);
+  }
+
+  // ── Render timeline durante procesamiento ──────────────────────────────────
+
+  function renderVtProcess() {
+    const wrapper = document.getElementById('vt-wrapper');
+    const STATUS_LABEL = { pending:'Pendiente', running:'Procesando…', completed:'Listo', error:'Error', cancelled:'Cancelado' };
+
+    wrapper.innerHTML = '';
+
+    // Iterar sobre TODOS los vtItems para que la cola siempre sea visible
+    vtItems.forEach(it => {
+      const num = it.numero;
+      const info = viajeResultados[num] || { status:'pending', paginas:0, total:0 };
+      const stateClass = info.status === 'completed' ? 'done' : info.status;
+      const el = document.createElement('div');
+      el.className = 'vt-item';
+      el.dataset.num = num;
+      el.dataset.estado = stateClass;
+      el.draggable = false;
+      const isFailed = info.status === 'error' || info.status === 'cancelled';
+      const isDone   = info.status === 'completed';
+      const isRunning= info.status === 'running';
+      const cp = info.checkpoint_pagina || 0;
+      const cpLabel = cp > 0
+        ? `<span class="vt-checkpoint">📌 pág. ${cp}</span>` : '';
+      const statusLabel = STATUS_LABEL[info.status] || info.status;
+      const resumeLabel = cp > 0 ? `↩ Reanudar pág. ${cp + 1}` : '↩ Reintentar';
+      const retryBtn = isFailed
+        ? `<button class="btn-resume" onclick="vtReintentarUno('${escHtml(num)}')">${resumeLabel}</button>` : '';
+      // Botón eliminar: solo para completados, errores o cancelados (no running/pending)
+      const removeBtn = (!isRunning && info.status !== 'pending')
+        ? `<button class="btn-remove-viaje" title="Eliminar de la lista" onclick="vtEliminarDeProcess('${escHtml(num)}')">✕</button>` : '';
+
+      el.innerHTML = `
+        <span class="vt-node ${stateClass}"></span>
+        <span class="vt-number">${escHtml(num)}</span>
+        ${info.paginas ? `<span style="font-size:11px;color:var(--muted);">${info.paginas}/${info.total}p</span>` : ''}
+        ${cpLabel}
+        <span class="vt-timer" id="vt-timer-${escHtml(num)}"></span>
+        <span class="vt-status ${stateClass}">${statusLabel}</span>
+        ${retryBtn}
+        ${removeBtn}
+      `;
+      wrapper.appendChild(el);
+    });
+  }
+
+  function vtTickTimers() {
+    viajeQueue.forEach(num => {
+      const info = viajeResultados[num];
+      if (!info || info.status !== 'running' || !info.startTime) return;
+      const secs = Math.floor((Date.now() - info.startTime) / 1000);
+      const m = String(Math.floor(secs / 60)).padStart(2,'0');
+      const s = String(secs % 60).padStart(2,'0');
+      const el = document.getElementById(`vt-timer-${num}`);
+      if (el) el.textContent = `${m}:${s}`;
+    });
+  }
+
+  // ── Eliminar viaje de la timeline ─────────────────────────────────────────
+  function vtEliminarDeProcess(num) {
+    viajeQueue = viajeQueue.filter(n => n !== num);
+    vtItems    = vtItems.filter(i => i.numero !== num);
+    delete viajeResultados[num];
+    viajeQueueTotal = viajeQueue.length;
+    renderVtProcess();
+    actualizarRetryBanner();
+    // Si ya no quedan viajes en la cola mostrar estado vacío
+    if (!viajeQueue.length) {
+      document.getElementById('vt-wrapper').innerHTML =
+        '<div class="vt-empty">Sin viajes en la cola. Agrega uno arriba.</div>';
+    }
+  }
+
+  // ── Log filter & scroll lock ───────────────────────────────────────────────
+  const _logFilter  = { d: 'all', v: 'all' };
+  const _scrollLock = { d: false, v: false };
+
+  function setLogFilter(prefix, filter) {
+    _logFilter[prefix] = filter;
+    // Actualizar botones activos
+    const toolbar = document.getElementById(prefix + '-log')
+      .closest('.log-wrap').querySelector('.log-toolbar');
+    toolbar.querySelectorAll('.log-filter-btn').forEach(b => b.classList.remove('active'));
+    toolbar.querySelector(`.f-${filter}`)?.classList.add('active');
+    // Mostrar/ocultar líneas
+    applyLogFilter(prefix);
+  }
+
+  function applyLogFilter(prefix) {
+    const box    = document.getElementById(prefix + '-log');
+    const filter = _logFilter[prefix];
+    box.querySelectorAll('.log-line').forEach(line => {
+      if (filter === 'all') {
+        line.style.display = '';
+      } else {
+        line.style.display = line.classList.contains(filter) ? '' : 'none';
+      }
+    });
+  }
+
+  function toggleScrollLock(prefix) {
+    _scrollLock[prefix] = !_scrollLock[prefix];
+    const btn = document.getElementById(prefix + '-lock');
+    if (_scrollLock[prefix]) {
+      btn.textContent = '🔓 Libre';
+      btn.classList.add('locked');
+    } else {
+      btn.textContent = '📌 Bloquear';
+      btn.classList.remove('locked');
+      // Scroll al final al desbloquear
+      const box = document.getElementById(prefix + '-log');
+      box.scrollTop = box.scrollHeight;
+    }
+  }
+
+  // ── WebSocket ─────────────────────────────────────────────────────────────
+  function conectarWS(prefix, jobId) {
+    if (ws[prefix]) ws[prefix].close();
+    const socket = new WebSocket(`${WS_BASE}/ws/${jobId}`);
+    ws[prefix] = socket;
+
+    socket.onopen = () => setBadge(prefix, 'running');
+
+    socket.onmessage = ({ data }) => {
+      const evt = JSON.parse(data);
+      handleEvent(prefix, evt);
+    };
+
+    socket.onclose = () => {
+      if (currentJob[prefix]) {
+        // Polling hasta que el job termine o cambie de estado
+        pollHastaFin(prefix, jobId);
+      }
+    };
+  }
+
+  function handleEvent(prefix, evt) {
+    switch (evt.type) {
+      case 'snapshot':
+        evt.data.logs.forEach(l => addLog(prefix, l));
+        updateProgress(prefix, evt.data.progress);
+        updateEstado(prefix, evt.data.estado_msg);
+        setBadge(prefix, evt.data.status);
+        // Si el snapshot llega con job ya terminado, mostrar resultados
+        if (evt.data.status === 'completed') {
+          if (prefix === 'd') mostrarResultados(prefix, evt.data.results);
+          resetBtn(prefix);
+        } else if (evt.data.status === 'error' || evt.data.status === 'cancelled') {
+          resetBtn(prefix);
+        }
+        break;
+      case 'log':
+        addLog(prefix, evt.data);
+        break;
+      case 'progress':
+        updateProgress(prefix, evt.data);
+        break;
+      case 'estado':
+        updateEstado(prefix, evt.data);
+        break;
+      case 'tiempo':
+        document.getElementById(prefix + '-tiempo').textContent = evt.data;
+        break;
+      case 'finalizado':
+        currentJob[prefix] = null;  // evita que onclose dispare pollHastaFin
+        ws[prefix] && ws[prefix].close();
+        if (prefix === 'v') {
+          const num = viajeQueue[viajeQueueIdx];
+          if (num) {
+            const exitoso = evt.data.exitoso !== false;  // undefined → true (backwards compat)
+            viajeResultados[num].paginas = evt.data.paginas_procesadas ?? 0;
+            viajeResultados[num].total   = evt.data.total_paginas ?? 0;
+            if (exitoso) {
+              viajeResultados[num].status = 'completed';
+            } else {
+              // Proceso terminó pero no fue exitoso — tratar como error con checkpoint
+              viajeResultados[num].status = 'error';
+              viajeResultados[num].checkpoint_pagina = evt.data.paginas_procesadas ?? 0;
+            }
+          }
+          setBadge(prefix, viajeResultados[num]?.status === 'error' ? 'error' : 'completed');
+          updateProgress(prefix, 100);
+          viajeQueueIdx++;
+          renderVtProcess();
+          if (viajeResultados[num]?.status === 'error') {
+            toast(`⚠️ Viaje ${num} incompleto (${evt.data.paginas_procesadas ?? 0}/${evt.data.total_paginas ?? '?'} págs)`, 'error');
+            if (viajeQueueIdx < viajeQueueTotal) setTimeout(() => procesarSiguienteViaje(), 1500);
+            else finalizarColaViajes();
+          } else {
+            if (viajeQueueIdx < viajeQueueTotal) {
+              toast(`✅ Viaje ${num} completado (${viajeQueueIdx}/${viajeQueueTotal})`, 'success');
+              setTimeout(() => procesarSiguienteViaje(), 1500);
+            } else {
+              finalizarColaViajes();
+            }
+          }
+        } else {
+          setBadge(prefix, 'completed');
+          updateProgress(prefix, 100);
+          mostrarResultados(prefix, evt.data);
+          resetBtn(prefix);
+          toast('✅ Proceso completado', 'success');
+        }
+        break;
+      case 'cancelado':
+        currentJob[prefix] = null;  // evita que onclose dispare pollHastaFin
+        setBadge(prefix, 'cancelled');
+        if (prefix === 'v') {
+          const num = viajeQueue[viajeQueueIdx];
+          if (num) {
+            viajeResultados[num].status = 'cancelled';
+            const cpDirect = evt.data?.paginas_procesadas;
+            if (cpDirect > 0) {
+              viajeResultados[num].checkpoint_pagina = cpDirect;
+              viajeResultados[num].total = evt.data.total_paginas ?? 0;
+            }
+            fetchCheckpoint(num);
+          }
+          // Marcar cualquier viaje que haya quedado en pending (los siguientes en la cola)
+          Object.entries(viajeResultados).forEach(([, info]) => {
+            if (info.status === 'pending') info.status = 'cancelled';
+          });
+          clearInterval(vtTimerInterval);
+          renderVtProcess();
+          finalizarColaViajes();
+        } else {
+          resetBtn(prefix);
+          toast('⬛ Proceso cancelado', 'error');
+        }
+        break;
+      case 'error': {
+        setBadge(prefix, 'error');
+        const errMsg = typeof evt.data === 'object'
+          ? (evt.data.message || 'Error desconocido') : evt.data;
+        addLog(prefix, '❌ ' + errMsg, 'error');
+        if (prefix === 'v') {
+          const num = viajeQueue[viajeQueueIdx];
+          if (num) {
+            viajeResultados[num].status = 'error';
+            // Extract checkpoint data directly from the event if available
+            if (typeof evt.data === 'object' && evt.data.paginas_procesadas > 0) {
+              viajeResultados[num].checkpoint_pagina = evt.data.paginas_procesadas;
+              viajeResultados[num].total = evt.data.total_paginas ?? 0;
+            }
+            fetchCheckpoint(num);  // confirm/complement with file
+          }
+          viajeQueueIdx++;
+          renderVtProcess();
+          currentJob[prefix] = null;  // evita que onclose dispare pollHastaFin
+          ws[prefix] && ws[prefix].close();
+          toast('Error en viaje ' + (num || '') + ': ' + errMsg, 'error');
+          if (viajeQueueIdx < viajeQueueTotal) {
+            // Pausar cola — continúa sólo cuando el usuario cierre el modal
+            _cpQueueResume = true;
+          } else {
+            finalizarColaViajes();
+          }
+        } else {
+          resetBtn(prefix);
+          toast('Error: ' + errMsg, 'error');
+        }
+        break;
+      }
+    }
+  }
+
+  async function pollHastaFin(prefix, jobId, intentos = 0, logOffset = 0) {
+    if (intentos > 72) { resetBtn(prefix); return; } // máx ~6 min
+    const path = prefix === 'd' ? 'desviaciones' : 'viajes';
+    try {
+      const r = await fetch(`${API}/${path}/estado/${jobId}`);
+      const data = await r.json();
+
+      // Agregar solo logs nuevos (evitar duplicados)
+      const logsNuevos = (data.logs || []).slice(logOffset);
+      logsNuevos.forEach(l => addLog(prefix, l));
+      const nuevoOffset = (data.logs || []).length;
+
+      updateEstado(prefix, data.estado_msg || '');
+      updateProgress(prefix, data.progress || 0);
+      setBadge(prefix, data.status);
+
+      if (data.status === 'completed') {
+        currentJob[prefix] = null;
+        if (prefix === 'd') mostrarResultados(prefix, data.results);
+        else if (prefix === 'v') {
+          const num = viajeQueue[viajeQueueIdx];
+          if (num) { viajeResultados[num].status = 'completed'; viajeResultados[num].paginas = data.results?.paginas_procesadas ?? 0; viajeResultados[num].total = data.results?.total_paginas ?? 0; }
+          viajeQueueIdx++;
+          renderVtProcess();
+          if (viajeQueueIdx < viajeQueueTotal) setTimeout(() => procesarSiguienteViaje(), 1500);
+          else finalizarColaViajes();
+          return;
+        }
+        resetBtn(prefix);
+      } else if (data.status === 'error' || data.status === 'cancelled') {
+        currentJob[prefix] = null;
+        if (prefix === 'v') {
+          const num = viajeQueue[viajeQueueIdx];
+          if (num) {
+            viajeResultados[num].status = data.status;
+            // results dict may contain paginas_procesadas (from error or cancelado events)
+            const cp = data.results?.paginas_procesadas ?? 0;
+            if (cp > 0) {
+              viajeResultados[num].checkpoint_pagina = cp;
+              viajeResultados[num].total = data.results?.total_paginas ?? 0;
+            }
+            fetchCheckpoint(num);
+          }
+          viajeQueueIdx++;
+          renderVtProcess();
+          if (data.status === 'cancelled') {
+            // Cancelación: detener toda la cola
+            Object.entries(viajeResultados).forEach(([, info]) => {
+              if (info.status === 'pending') info.status = 'cancelled';
+            });
+            clearInterval(vtTimerInterval);
+            finalizarColaViajes();
+          } else if (viajeQueueIdx < viajeQueueTotal) {
+            _cpQueueResume = true;  // pausar cola hasta decisión del usuario
+          } else {
+            finalizarColaViajes();
+          }
+          return;
+        }
+        resetBtn(prefix);
+      } else {
+        // Sigue corriendo — reintentar en 5s
+        setTimeout(() => pollHastaFin(prefix, jobId, intentos + 1, nuevoOffset), 5000);
+      }
+    } catch {
+      setTimeout(() => pollHastaFin(prefix, jobId, intentos + 1, logOffset), 5000);
+    }
+  }
+
+  // ── Cancelar ──────────────────────────────────────────────────────────────
+  async function cancelarJob(prefix) {
+    const jobId = currentJob[prefix];
+    if (!jobId) return;
+    const path = prefix === 'd' ? 'desviaciones' : 'viajes';
+
+    if (prefix === 'v') {
+      // Marcar pendientes como cancelados — pero NO avanzar viajeQueueIdx todavía.
+      // El handler del evento WS 'cancelado' necesita leer viajeQueue[viajeQueueIdx]
+      // para identificar el viaje activo y guardar su checkpoint correctamente.
+      Object.entries(viajeResultados).forEach(([num, info]) => {
+        if (info.status === 'pending' && num !== viajeQueue[viajeQueueIdx]) {
+          info.status = 'cancelled';
+        }
+      });
+      renderVtProcess();
+    }
+
+    try {
+      await fetch(`${API}/${path}/cancelar/${jobId}`, { method: 'POST' });
+      toast('Señal de cancelación enviada', 'error');
+    } catch(e) {
+      toast('Error al cancelar', 'error');
+    }
+  }
+
+  // ── UI Helpers ────────────────────────────────────────────────────────────
+  function addLog(prefix, msg, type) {
+    const box    = document.getElementById(prefix + '-log');
+    const cls    = type || classifyLog(msg);
+    const now    = new Date();
+    const hh     = String(now.getHours()).padStart(2,'0');
+    const mm     = String(now.getMinutes()).padStart(2,'0');
+    const ss     = String(now.getSeconds()).padStart(2,'0');
+    const line   = document.createElement('div');
+    line.className = 'log-line ' + cls;
+    line.innerHTML = `<span class="log-ts">${hh}:${mm}:${ss}</span> ${escHtml(msg)}`;
+    // Aplicar filtro activo
+    const filter = _logFilter[prefix] || 'all';
+    if (filter !== 'all' && !line.classList.contains(filter)) {
+      line.style.display = 'none';
+    }
+    box.appendChild(line);
+    // Solo auto-scroll si no está bloqueado
+    if (!_scrollLock[prefix]) box.scrollTop = box.scrollHeight;
+  }
+
+  function classifyLog(msg) {
+    if (msg.includes('✅')) return 'success';
+    if (msg.includes('❌')) return 'error';
+    if (msg.includes('⚠️')) return 'warn';
+    if (msg.includes('//'))  return 'info';
+    return 'default';
+  }
+
+  function updateProgress(prefix, pct) {
+    document.getElementById(prefix + '-bar').style.width = pct + '%';
+    document.getElementById(prefix + '-pct').textContent = pct + '%';
+  }
+
+  function updateEstado(prefix, msg) {
+    document.getElementById(prefix + '-estado').textContent = msg;
+  }
+
+  function setBadge(prefix, status) {
+    const badge = document.getElementById(prefix + '-badge');
+    const labels = { pending:'● Inactivo', running:'● Procesando', completed:'● Completado', error:'● Error', cancelled:'● Cancelado' };
+    badge.className = 'status-badge ' + status;
+    badge.textContent = labels[status] || status;
+  }
+
+  function resetBtn(prefix) {
+    if (prefix === 'd') {
+      document.getElementById('btnIniciar').disabled = false;
+      document.getElementById('btnCancelar').disabled = true;
+    } else {
+      document.getElementById('btnViajeIniciar').disabled = false;
+      document.getElementById('btnVCancelar').disabled = true;
+    }
+  }
+
+  function resetMonitor(prefix) {
+    document.getElementById(prefix + '-log').innerHTML = '<div class="log-line info">// Iniciando...</div>';
+    updateProgress(prefix, 0);
+    updateEstado(prefix, 'Iniciando...');
+    setBadge(prefix, 'running');
+    document.getElementById(prefix + '-tiempo').textContent = '';
+    const res = document.getElementById(prefix === 'd' ? 'd-results' : 'v-results');
+    if (res) res.style.display = 'none';
+    // Resetear filtro y scroll lock
+    _logFilter[prefix] = 'all';
+    _scrollLock[prefix] = false;
+    const lockBtn = document.getElementById(prefix + '-lock');
+    if (lockBtn) { lockBtn.textContent = '📌 Bloquear'; lockBtn.classList.remove('locked'); }
+    const toolbar = document.getElementById(prefix + '-log')
+      .closest('.log-wrap')?.querySelector('.log-toolbar');
+    if (toolbar) {
+      toolbar.querySelectorAll('.log-filter-btn').forEach(b => b.classList.remove('active'));
+      toolbar.querySelector('.f-all')?.classList.add('active');
+    }
+  }
+
+  function mostrarResultados(prefix, results) {
+    if (prefix === 'd') {
+      document.getElementById('d-results').style.display = 'block';
+      document.getElementById('r-creadas').textContent  = results.desviaciones_creadas ?? 0;
+      document.getElementById('r-ent').textContent      = results.guias_ent ?? 0;
+      document.getElementById('r-errores').textContent  = results.errores ?? 0;
+      document.getElementById('r-adverts').textContent  = results.advertencias ?? 0;
+      document.getElementById('r-tiempo').textContent   = results.tiempo_total ?? '';
+    } else {
+      // Para viajes se usa finalizarColaViajes() directamente
+    }
+  }
+
+  // ── Historial ─────────────────────────────────────────────────────────────
+  let _histJobs = [];
+  const HIST_DELETED_KEY = 'alertran_hist_deleted';
+
+  function _histDeletedLoad() {
+    try { return new Set(JSON.parse(localStorage.getItem(HIST_DELETED_KEY) || '[]')); }
+    catch { return new Set(); }
+  }
+  function _histDeletedSave(set) {
+    localStorage.setItem(HIST_DELETED_KEY, JSON.stringify([...set]));
+  }
+
+  function histFiltrar(status) {
+    histFiltroActivo = status;
+    document.querySelectorAll('.hist-stat').forEach(el => el.classList.remove('active'));
+    const idx = ['','completed','running','error','cancelled'].indexOf(status);
+    document.querySelectorAll('.hist-stat')[idx >= 0 ? idx : 0]?.classList.add('active');
+    renderHistorial(_histJobs);
+  }
+
+  async function cargarHistorial() {
+    try {
+      const r = await fetch(`${API}/jobs`);
+      const deleted = _histDeletedLoad();
+      _histJobs = (await r.json()).reverse().filter(j => !deleted.has(j.job_id));
+      // Actualizar contadores
+      const cnt = { completed:0, running:0, error:0, cancelled:0 };
+      _histJobs.forEach(j => { if (cnt[j.status] !== undefined) cnt[j.status]++; });
+      document.getElementById('hs-total').textContent     = _histJobs.length;
+      document.getElementById('hs-completed').textContent = cnt.completed;
+      document.getElementById('hs-running').textContent   = cnt.running;
+      document.getElementById('hs-error').textContent     = cnt.error;
+      document.getElementById('hs-cancelled').textContent = cnt.cancelled;
+      renderHistorial(_histJobs);
+    } catch(e) {
+      toast('Error al cargar historial', 'error');
+    }
+  }
+
+  function renderHistorial(jobs) {
+    const container = document.getElementById('historial-list');
+    const filtered  = histFiltroActivo ? jobs.filter(j => j.status === histFiltroActivo) : jobs;
+    if (!filtered.length) {
+      container.innerHTML = '<div class="empty-state">Sin jobs para este filtro.</div>';
+      return;
+    }
+    const statusIcon  = { pending:'⏳', running:'🔄', completed:'✅', error:'❌', cancelled:'⬛' };
+    const statusLabel = { pending:'Pendiente', running:'Procesando', completed:'Completado', error:'Error', cancelled:'Cancelado' };
+    container.innerHTML = filtered.map(j => {
+      const res = j.results || {};
+      const chips = [];
+      if (res.desviaciones_creadas != null) chips.push(`✅ ${res.desviaciones_creadas} creadas`);
+      if (res.guias_ent != null)            chips.push(`📦 ${res.guias_ent} ENT`);
+      if (res.errores != null)              chips.push(`❌ ${res.errores} errores`);
+      if (res.paginas_procesadas != null)   chips.push(`📄 ${res.paginas_procesadas}/${res.total_paginas ?? '?'} págs`);
+      if (res.tiempo_total)                 chips.push(`⏱️ ${res.tiempo_total}`);
+      return `
+      <div class="hist-job" id="hj-${j.job_id}">
+        <div class="hist-job-header" onclick="toggleHistJob('${j.job_id}')">
+          <span class="hj-icon">${statusIcon[j.status] || '•'}</span>
+          <div class="hj-info">
+            <div class="hj-type">${j.estado_msg || j.job_id.slice(0,8)}</div>
+            <div class="hj-id">${j.job_id}</div>
+          </div>
+          <div class="status-badge ${j.status}">${statusLabel[j.status] || j.status}</div>
+          <span class="hj-time">${j.created_at?.slice(11,19) || ''}</span>
+          <span class="hj-arrow">▶</span>
+          <button class="hj-del" title="Eliminar del historial"
+            onclick="event.stopPropagation(); histEliminar('${j.job_id}')">✕</button>
+        </div>
+        <div class="hist-job-body">
+          ${chips.length ? `<div class="hist-job-results">${chips.map(c=>`<span class="hj-res-chip">${c}</span>`).join('')}</div>` : ''}
+          <div class="hist-job-logs">${(j.logs||[]).map(l=>`<div class="${classifyLog(l)}">${escHtml(l)}</div>`).join('') || '<span style="color:var(--muted)">Sin logs.</span>'}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function toggleHistJob(jobId) {
+    const el = document.getElementById('hj-' + jobId);
+    if (el) el.classList.toggle('open');
+  }
+
+  function histEliminar(jobId) {
+    _histJobs = _histJobs.filter(j => j.job_id !== jobId);
+    // Persistir en localStorage para que no vuelva en próximas sesiones
+    const deleted = _histDeletedLoad();
+    deleted.add(jobId);
+    _histDeletedSave(deleted);
+    // Recalcular contadores
+    const cnt = { completed:0, running:0, error:0, cancelled:0 };
+    _histJobs.forEach(j => { if (cnt[j.status] !== undefined) cnt[j.status]++; });
+    document.getElementById('hs-total').textContent     = _histJobs.length;
+    document.getElementById('hs-completed').textContent = cnt.completed;
+    document.getElementById('hs-running').textContent   = cnt.running;
+    document.getElementById('hs-error').textContent     = cnt.error;
+    document.getElementById('hs-cancelled').textContent = cnt.cancelled;
+    renderHistorial(_histJobs);
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ── Toast ─────────────────────────────────────────────────────────────────
+  function toast(msg, type = 'success') {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = 'show ' + type;
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => el.className = '', 3500);
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      document.getElementById('vt-modal').style.display = 'none';
+      vtModalNum = null;
+      cpDescartar();
+    }
+  });
+
+  // ── Advertencia al cerrar / recargar ──────────────────────────────────────
+  function hayTrabajoActivo() {
+    if (currentJob.d && ws.d && ws.d.readyState === WebSocket.OPEN) return true;
+    if (currentJob.v && ws.v && ws.v.readyState === WebSocket.OPEN) return true;
+    return false;
+  }
+  function hayDatosIngresados() {
+    if (document.getElementById('d-guias')?.value.trim()) return true;
+    if (_credUsuario) return true;
+    if (vtItems.length > 0) return true;
+    return false;
+  }
+  window.addEventListener('beforeunload', e => {
+    if (hayTrabajoActivo() || hayDatosIngresados()) {
+      e.preventDefault();
+      e.returnValue = 'Hay un proceso activo o datos ingresados. ¿Seguro que deseas salir?';
+    }
+  });
+
+  init();
+
+  // ── PWA: registrar Service Worker ──────────────────────────────────────────
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/static/sw.js')
+        .then(reg => console.log('[SW] registrado:', reg.scope))
+        .catch(err => console.warn('[SW] error:', err));
+    });
+  }
+</script>
+</body>
+</html>

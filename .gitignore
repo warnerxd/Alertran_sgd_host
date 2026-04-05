@@ -1,0 +1,69 @@
+# Python cache files
+_pycache_/
+*.pyc
+*.pyo
+*.pyd
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+logs/*.log
+logs/.log.
+!logs/.gitkeep
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.sublime-
+.project
+.classpath
+.settings/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Python distribution/packaging
+dist/
+build/
+*.egg-info/
+*.egg
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# Database and local config
+*.db
+*.sqlite
+*.sqlite3
+config/local_settings.py
+config/.env
+*.local
+
+# Project specific (Alertran_SGD)
+*.pid
+*.lock
+temp/
+tmp/
+*.tmp
