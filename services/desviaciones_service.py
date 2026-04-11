@@ -140,21 +140,28 @@ class DesviacionesService(BaseService):
         try:
             tipo_input = contenido.locator('input[name="tipo_incidencia_codigo"]:not([type="hidden"])')
             await tipo_input.wait_for(state="visible", timeout=10000)
+            await tipo_input.click(timeout=8000)
             await tipo_input.fill("")
             await tipo_input.fill(tipo)
             await tipo_input.press("Enter")
+            # Esperar a que el JS de validación del tipo termine antes de tocar origen
+            await asyncio.sleep(TIEMPO_ESPERA_INGRESO_CODIGOS / 1000)
 
             origen_input = contenido.locator('input[name="tipo_origen_incidencia_codigo"]:not([type="hidden"])')
             await origen_input.wait_for(state="visible", timeout=10000)
-            await origen_input.fill("")
             await asyncio.sleep(TIEMPO_ESPERA_INGRESO_CODIGOS / 1000)
-            await origen_input.fill(origen)
+            # Click explícito para forzar foco y desbloquear el campo
+            await origen_input.click(timeout=8000)
+            await asyncio.sleep(0.3)
+            await origen_input.fill("", timeout=15000)
+            await asyncio.sleep(TIEMPO_ESPERA_INGRESO_CODIGOS / 1000)
+            await origen_input.fill(origen, timeout=15000)
             await asyncio.sleep(TIEMPO_ESPERA_INGRESO_CODIGOS / 1000)
             await origen_input.press("Enter")
             await asyncio.sleep(TIEMPO_ESPERA_CLICK / 1000)
             return True
         except Exception as e:
-            await self.log(f"⚠️ [Nav{nav_idx}] Error códigos: {str(e)}")
+            await self.log(f"⚠️ [Nav{nav_idx}] Error códigos: {str(e)[:150]}")
             return False
 
     async def manejar_boton_volver(self, solapas, guia: str, nav_idx: int) -> bool:
@@ -174,7 +181,7 @@ class DesviacionesService(BaseService):
             _filtro = self._filtro(_page)
             try:
                 await _filtro.locator('input[name="nenvio"]:not([type="hidden"])').wait_for(
-                    state="visible", timeout=8000
+                    state="visible", timeout=25000
                 )
             except Exception:
                 await self.log(f"⚠️ [Nav{nav_idx}] Formulario no cargó tras Volver — renavegando...")
@@ -188,13 +195,22 @@ class DesviacionesService(BaseService):
     async def verificar_incidencia_creada(self, page, nav_idx: int, guia: str):
         try:
             contenido = self._contenido(page)
-            try:
-                body_text = await contenido.locator("body").inner_text(timeout=4000)
-                if not body_text.strip():
-                    await self.log(f"⚠️ [Nav{nav_idx}] Frame vacío tras creación — estado indeterminado")
-                    return None
-            except Exception:
-                await self.log(f"⚠️ [Nav{nav_idx}] No se pudo leer el frame — estado indeterminado")
+            # Dar tiempo al servidor para que cargue la respuesta en el frame
+            await asyncio.sleep(1.5)
+            body_text = None
+            for _intento_lect in range(1, 3):
+                try:
+                    body_text = await contenido.locator("body").inner_text(timeout=12000)
+                    break
+                except Exception:
+                    if _intento_lect < 2:
+                        await self.log(f"⏳ [Nav{nav_idx}] Frame aún cargando — reintentando lectura...")
+                        await asyncio.sleep(3)
+            if body_text is None:
+                await self.log(f"⚠️ [Nav{nav_idx}] No se pudo leer el frame tras 2 intentos — estado indeterminado")
+                return None
+            if not body_text.strip():
+                await self.log(f"⚠️ [Nav{nav_idx}] Frame vacío tras creación — estado indeterminado")
                 return None
 
             mensajes_error = [
@@ -276,6 +292,7 @@ class DesviacionesService(BaseService):
     async def _ejecutar_creacion(self, page, guia: str, nav_idx: int, contenido):
         await contenido.get_by_role("button", name="Crear").click()
         await self.esperar_overlay(page)
+        await asyncio.sleep(1)  # Margen extra para que el frame de respuesta comience a cargar
         return await self.verificar_incidencia_creada(page, nav_idx, guia)
 
     async def _procesar_creacion_incidencia(self, page, guia: str, nav_idx: int, resultado, contenido, solapas, intento: int) -> bool:
@@ -332,20 +349,25 @@ class DesviacionesService(BaseService):
 
         envio = filtro.locator('input[name="nenvio"]:not([type="hidden"])')
         try:
-            await envio.wait_for(state="visible", timeout=8000)
+            await envio.wait_for(state="visible", timeout=25000)
         except Exception:
             await self.log(f"⚠️ [Nav{nav_idx}] Frame filtro no disponible — renavegando a 7.8...")
+            # Stagger: cada navegador espera un tiempo proporcional a su índice para evitar
+            # que varios re-naveguen simultáneamente y saturen el servidor
+            await asyncio.sleep(random.uniform(0.5, nav_idx * 1.2))
             if not await self.navegar_a_funcionalidad_7_8(page, nav_idx):
                 error_msg = "Recuperación fallida: no se pudo navegar a 7.8"
                 await self._registrar_error(guia, error_msg, nav_idx)
                 raise Exception(error_msg)
+            # Pausa adicional para que el servidor procese la navegación bajo carga
+            await asyncio.sleep(3)
             filtro    = self._filtro(page)
             resultado = self._resultado(page)
             contenido = self._contenido(page)
             solapas   = self._solapas(page)
             envio     = filtro.locator('input[name="nenvio"]:not([type="hidden"])')
             try:
-                await envio.wait_for(state="visible", timeout=10000)
+                await envio.wait_for(state="visible", timeout=40000)
             except Exception as e2:
                 error_msg = f"Campo búsqueda no disponible tras recuperación: {str(e2)}"
                 await self._registrar_error(guia, error_msg, nav_idx)
@@ -396,7 +418,9 @@ class DesviacionesService(BaseService):
                         async with self.lock:
                             resultados['exitosas'] += 1
                 except Exception as e:
-                    await self.log(f"❌ [Nav{nav_idx}] Error: {str(e)}")
+                    await self.log(f"❌ [Nav{nav_idx}] Error en guía {guia}: {str(e)[:120]}")
+                    # Pausa para que el servidor se estabilice antes de la próxima guía
+                    await asyncio.sleep(5)
 
                 async with self.lock:
                     resultados['progreso'] += 1
@@ -571,6 +595,13 @@ class DesviacionesService(BaseService):
                 "advertencias": len(self.guias_advertencia),
                 "tiempo_total": tiempo_formateado,
                 "archivo_errores": ruta_errores,
+                "guias_con_error":    [g for g, _ in self.guias_error],
+                "guias_exitosas_lista": sorted(self.guias_procesadas_exito),
+                "guias_ent_lista":     list(self.guias_ent),
+                "guias_error_lista":   [(g, m) for g, m in self.guias_error],
+                "ciudad": self.ciudad,
+                "tipo": self.tipo,
+                "ampliacion": self.ampliacion,
             }
             await self.jm.emit_finalizado(self.job_id, results)
         else:
@@ -583,6 +614,12 @@ class DesviacionesService(BaseService):
         self.lock = asyncio.Lock()
         self._login_sem = asyncio.Semaphore(10)
         self.jm.marcar_running(self.job_id)
+        self.jm.set_meta(self.job_id, {
+            "_tipo_job": "desviacion",
+            "ciudad": self.ciudad,
+            "tipo": self.tipo,
+            "ampliacion": self.ampliacion,
+        })
 
         # ── Modo preview ─────────────────────────────────────────────────────
         if self.preview:

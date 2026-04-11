@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from typing import Optional
 import tempfile, os
 
-from schemas.desviaciones import DesviacionesRequest, JobCreado, JobEstado, CancelarResponse
+from schemas.desviaciones import DesviacionesRequest, JobCreado, JobEstado, CancelarResponse, MAX_GUIAS
 from services.desviaciones_service import DesviacionesService
 from services.job_manager import job_manager
 
@@ -57,6 +57,18 @@ async def procesar_desviaciones_excel(
         contenido = await archivo.read()
         tmp.write(contenido)
         tmp_path = tmp.name
+
+    # Validar límite de guías antes de crear el job
+    from utils.file_utils import FileUtils
+    from pathlib import Path
+    guias_excel = FileUtils.leer_guias_excel(Path(tmp_path))
+    if len(guias_excel) > MAX_GUIAS:
+        os.unlink(tmp_path)
+        raise HTTPException(
+            status_code=422,
+            detail=f"Máximo {MAX_GUIAS} guías por proceso (el archivo contiene {len(guias_excel)}). "
+                   f"Divida el lote en grupos de {MAX_GUIAS}."
+        )
 
     job_id  = job_manager.crear_job()
     service = DesviacionesService(

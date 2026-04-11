@@ -669,12 +669,19 @@ class ViajesService(BaseService):
 
             await self.log(f"\n {'='*50}")
             await self.log(f" 🕑 Completado en {tiempo_formateado}")
-            await self.log(f" ✅ Viaje procesado: {self.numero_viaje}")
-            await self.log(f" 📌 Tipo incidencia: {self.codigo_desviacion}")
+            if self.proceso_viaje_exitoso:
+                await self.log(f" ✅ Viaje procesado: {self.numero_viaje}")
+                await self.log(f" 📌 Tipo incidencia: {self.codigo_desviacion}")
+            else:
+                await self.log(f" ⚠️ Viaje {self.numero_viaje} finalizado sin páginas procesadas")
             await self.log(f" {'='*50}")
 
             results = {
-                "viaje": self.numero_viaje,
+                "_tipo_job": "viaje",
+                "numero_viaje": self.numero_viaje,
+                "ciudad": self.ciudad,
+                "tipo": self.codigo_desviacion,
+                "observaciones": self.observaciones,
                 "paginas_procesadas": self.paginas_procesadas,
                 "total_paginas": self.total_paginas,
                 "exitoso": self.proceso_viaje_exitoso,
@@ -695,6 +702,13 @@ class ViajesService(BaseService):
         """Método principal — se ejecuta como background task de FastAPI."""
         self.lock = asyncio.Lock()
         self.jm.marcar_running(self.job_id)
+        self.jm.set_meta(self.job_id, {
+            "_tipo_job": "viaje",
+            "numero_viaje": self.numero_viaje,
+            "ciudad": self.ciudad,
+            "tipo": self.codigo_desviacion,
+            "observaciones": self.observaciones,
+        })
 
         try:
             self.tiempo_inicio = time.time()

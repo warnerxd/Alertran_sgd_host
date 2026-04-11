@@ -1,5 +1,5 @@
 // Service Worker — ALERTRAN SGD
-const CACHE = 'alertran-v4';
+const CACHE = 'alertran-v11';
 
 // Assets estáticos que se cachean en la instalación
 const PRECACHE = [

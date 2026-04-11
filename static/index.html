@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#6366f1"/>
   <link rel="manifest" href="/static/manifest.json"/>
   <link rel="apple-touch-icon" href="/static/icons/icon-192.png"/>
-  <link rel="stylesheet" href="static/style.css?v=3"/>
+  <link rel="stylesheet" href="static/style.css?v=11"/>
   <style>
     /* ── Responsive crítico (inline para evitar caché del SW) ── */
 
@@ -58,10 +58,14 @@
 
 <header>
   <div class="logo">⚡ ALERTRAN SGD</div>
-  <div class="badge">API v1.0</div>
+  <div class="badge"></div>
   <div class="status-dot">
     <div class="dot" id="apiDot"></div>
     <span id="apiStatus">Verificando...</span>
+  </div>
+  <div class="server-load" id="serverLoad" style="display:none;" title="">
+    <span class="server-load-icon">⚠️</span>
+    <span id="serverLoadTxt"></span>
   </div>
   <button class="header-account" id="headerAccount" onclick="abrirLogin()" title="Cambiar cuenta">
     <span class="account-icon">👤</span>
@@ -74,8 +78,8 @@
 </header>
 
 <div class="tabs">
-  <div class="tab active" onclick="switchTab('desviaciones')">📦 Desviaciones</div>
-  <div class="tab" onclick="switchTab('viajes')">🚚 Viajes</div>
+  <div class="tab active" onclick="switchTab('desviaciones')">📦 Desviaciones<span class="tab-dot" id="tab-dot-d"></span></div>
+  <div class="tab" onclick="switchTab('viajes')">🚚 Viajes<span class="tab-dot" id="tab-dot-v"></span></div>
   <div class="tab" onclick="switchTab('historial')">🗂️ Historial</div>
 </div>
 
@@ -101,6 +105,16 @@
         <div class="form-group">
           <label>Navegadores paralelos</label>
           <input type="number" id="d-navs" value="1" min="1" max="100"/>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Etiqueta <span style="font-weight:400;color:var(--muted);font-size:11px;">(opcional)</span></label>
+        <div class="d-etiquetas">
+          <button type="button" class="d-etq-btn" data-val="9AM"  onclick="dSelEtiqueta(this)">9AM</button>
+          <button type="button" class="d-etq-btn" data-val="12AM" onclick="dSelEtiqueta(this)">12AM</button>
+          <button type="button" class="d-etq-btn" data-val="DPL"  onclick="dSelEtiqueta(this)">DPL</button>
+          <button type="button" class="d-etq-btn" data-val="STD"  onclick="dSelEtiqueta(this)">STD</button>
         </div>
       </div>
 
@@ -144,7 +158,7 @@
       </div>
 
       <div style="display:flex;gap:8px;">
-        <button class="btn btn-primary" id="btnIniciar" onclick="iniciarDesviaciones()" style="flex:1;">
+        <button class="btn btn-primary" id="btnIniciar" onclick="confirmarDesviaciones()" style="flex:1;">
           ▶ Iniciar procesamiento
         </button>
         <button class="btn btn-test" id="btnTestD" onclick="probarConexion('d')" title="Verificar credenciales y conexión al sistema">
@@ -158,6 +172,7 @@
       <div class="card" style="margin-bottom:16px;">
         <div class="monitor-header">
           <h3>Monitor</h3>
+          <button class="btn-refresh-mon" id="d-refresh" onclick="forzarActualizacion('d')" title="Reconectar / actualizar estado" disabled>🔄</button>
           <div id="d-badge" class="status-badge pending">● Inactivo</div>
         </div>
 
@@ -262,7 +277,7 @@
       </div>
 
       <div style="display:flex;gap:8px;">
-        <button class="btn btn-primary" id="btnViajeIniciar" onclick="iniciarViaje()" style="flex:1;">
+        <button class="btn btn-primary" id="btnViajeIniciar" onclick="confirmarViaje()" style="flex:1;">
           ▶ Iniciar procesamiento
         </button>
         <button class="btn btn-test" id="btnTestV" onclick="probarConexion('v')" title="Verificar credenciales y conexión al sistema">
@@ -276,6 +291,7 @@
       <div class="card" style="margin-bottom:16px;">
         <div class="monitor-header">
           <h3>Monitor</h3>
+          <button class="btn-refresh-mon" id="v-refresh" onclick="forzarActualizacion('v')" title="Reconectar / actualizar estado" disabled>🔄</button>
           <div id="v-badge" class="status-badge pending">● Inactivo</div>
         </div>
 
@@ -322,32 +338,76 @@
 
   <!-- ═══════════════ HISTORIAL ═══════════════ -->
   <div class="panel historial" id="panel-historial">
-    <div class="card">
-      <div class="monitor-header">
-        <h3>Jobs de esta sesión</h3>
-        <button class="btn btn-primary" style="width:auto;padding:7px 16px;font-size:13px;" onclick="cargarHistorial()">🔄 Actualizar</button>
+    <div class="hist-layout">
+
+      <!-- Columna derecha: filtros + lista -->
+      <div class="hist-main" style="order:2;">
+        <div class="card">
+          <div class="monitor-header">
+            <h3>Historial Desviaciones <span id="hist-ttl-label" style="font-size:10px;font-weight:400;color:var(--muted);margin-left:6px;"></span></h3>
+            <button class="btn btn-primary" style="width:auto;padding:7px 16px;font-size:13px;" onclick="cargarHistorial()">🔄 Actualizar</button>
+          </div>
+
+          <!-- Stat chips filtrables por estado -->
+          <div class="hist-stats" id="hist-stats" style="margin-top:14px;">
+            <div class="hist-stat s-all active" onclick="histFiltrar('')">
+              <div class="hs-val" id="hs-total">0</div><div class="hs-lbl">Todos</div>
+            </div>
+            <div class="hist-stat s-comp" onclick="histFiltrar('completed')">
+              <div class="hs-val" id="hs-completed">0</div><div class="hs-lbl">✅ Completados</div>
+            </div>
+            <div class="hist-stat s-run" onclick="histFiltrar('running')">
+              <div class="hs-val" id="hs-running">0</div><div class="hs-lbl">🔄 Activos</div>
+            </div>
+            <div class="hist-stat s-err" onclick="histFiltrar('error')">
+              <div class="hs-val" id="hs-error">0</div><div class="hs-lbl">❌ Errores</div>
+            </div>
+            <div class="hist-stat s-canc" onclick="histFiltrar('cancelled')">
+              <div class="hs-val" id="hs-cancelled">0</div><div class="hs-lbl">⬛ Cancelados</div>
+            </div>
+          </div>
+
+          <!-- Filtro por tipo de job -->
+          <div class="hist-tipo-filtros" style="margin-top:10px;">
+            <button class="htf-btn active" id="htf-all"   onclick="histFiltrarTipo('')">Todos</button>
+            <button class="htf-btn"        id="htf-viaje" onclick="histFiltrarTipo('viaje')">🚚 Viajes</button>
+            <button class="htf-btn"        id="htf-desv"  onclick="histFiltrarTipo('desv')">📦 Desviaciones</button>
+          </div>
+
+          <!-- Rango activo (resumen textual) -->
+          <div id="hcal-rango-info" class="hcal-rango-info" style="display:none;margin-top:8px;"></div>
+
+          <div id="historial-list" style="margin-top:8px;"><div class="empty-state">Sin jobs registrados aún.</div></div>
+        </div>
       </div>
 
-      <!-- Stat chips filtrables -->
-      <div class="hist-stats" id="hist-stats" style="margin-top:14px;">
-        <div class="hist-stat s-all active" onclick="histFiltrar('')">
-          <div class="hs-val" id="hs-total">0</div><div class="hs-lbl">Todos</div>
-        </div>
-        <div class="hist-stat s-comp" onclick="histFiltrar('completed')">
-          <div class="hs-val" id="hs-completed">0</div><div class="hs-lbl">✅ Completados</div>
-        </div>
-        <div class="hist-stat s-run" onclick="histFiltrar('running')">
-          <div class="hs-val" id="hs-running">0</div><div class="hs-lbl">🔄 Activos</div>
-        </div>
-        <div class="hist-stat s-err" onclick="histFiltrar('error')">
-          <div class="hs-val" id="hs-error">0</div><div class="hs-lbl">❌ Errores</div>
-        </div>
-        <div class="hist-stat s-canc" onclick="histFiltrar('cancelled')">
-          <div class="hs-val" id="hs-cancelled">0</div><div class="hs-lbl">⬛ Cancelados</div>
+      <!-- Columna izquierda: calendario -->
+      <div class="hist-sidebar" style="order:1;">
+        <div class="hcal-card">
+          <div class="hcal-header">
+            <button class="hcal-nav" onclick="hcalNavMes(-1)">&#8249;</button>
+            <div class="hcal-selects">
+              <select id="hcal-mes" onchange="hcalIrA()"></select>
+              <select id="hcal-anio" onchange="hcalIrA()"></select>
+            </div>
+            <button class="hcal-nav" onclick="hcalNavMes(1)">&#8250;</button>
+          </div>
+
+          <div class="hcal-dias-header">
+            <span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span>
+          </div>
+          <div class="hcal-grid" id="hcal-grid" ondragstart="return false"></div>
+
+          <div class="hcal-footer">
+            <div class="hcal-legend">
+              <span class="hcal-dot hcal-dot-start"></span> Inicio
+              <span class="hcal-dot hcal-dot-end" style="margin-left:8px;"></span> Fin
+            </div>
+            <button class="htf-btn hcal-clear" onclick="hcalLimpiar()">✕ Limpiar</button>
+          </div>
         </div>
       </div>
 
-      <div id="historial-list" style="margin-top:8px;"><div class="empty-state">Sin jobs registrados aún.</div></div>
     </div>
   </div>
 
@@ -386,6 +446,19 @@
 </div>
 
 <!-- ══════ MODAL checkpoint ══════ -->
+<!-- ── Modal confirmación eliminación ── -->
+<div class="modal-overlay" id="confirm-modal" style="display:none;" onclick="_confirmCancelar()">
+  <div class="modal-box" style="max-width:360px;text-align:center;" onclick="event.stopPropagation()">
+    <div style="font-size:32px;margin-bottom:8px;">🗑️</div>
+    <h3 id="confirm-titulo" style="margin:0 0 6px;font-size:15px;"></h3>
+    <p id="confirm-subtitulo" style="font-size:12px;color:var(--muted);margin:0 0 20px;"></p>
+    <div style="display:flex;gap:10px;justify-content:center;">
+      <button class="btn" style="flex:1;max-width:130px;" onclick="_confirmCancelar()">Cancelar</button>
+      <button class="btn btn-danger" style="flex:1;max-width:130px;" onclick="_confirmAceptar()">Eliminar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="cp-modal" style="display:none;">
   <div class="modal-box cp-modal-box" onclick="event.stopPropagation()">
     <div class="cp-icon" id="cp-icon">⬛</div>
@@ -415,6 +488,29 @@
       <button class="btn btn-secondary" onclick="cpDescartar()">✕ Descartar</button>
       <button class="btn btn-warning" onclick="cpDesdeInicio()">↺ Desde el inicio</button>
       <button class="btn btn-primary" id="cp-btn-reanudar" onclick="cpReanudar()">▶ Reanudar pág. <span id="cp-btn-pag">?</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ MODAL confirmación de proceso ══════ -->
+<div class="modal-overlay" id="proc-confirm-modal" style="display:none;" onclick="procConfirmCancelar()">
+  <div class="modal-box proc-confirm-box" onclick="event.stopPropagation()">
+    <div class="pc-icon" id="pc-icon">⚡</div>
+    <h3 id="pc-title" style="margin:0 0 4px;font-size:16px;"></h3>
+    <p id="pc-subtitle" style="font-size:12px;color:var(--muted);margin:0 0 16px;"></p>
+
+    <div class="pc-fields" id="pc-fields"></div>
+
+    <div id="pc-guias-preview" style="display:none;margin-top:12px;">
+      <div class="pc-guias-lbl" id="pc-guias-lbl">Guías a procesar:</div>
+      <div class="pc-guias-chips" id="pc-guias-chips"></div>
+    </div>
+
+    <div class="pc-warning" id="pc-warning" style="display:none;"></div>
+
+    <div class="modal-footer" style="margin-top:20px;gap:10px;">
+      <button class="btn btn-secondary" onclick="procConfirmCancelar()">✕ Cancelar</button>
+      <button class="btn btn-primary" id="pc-btn-confirmar" onclick="procConfirmAceptar()">▶ Confirmar e iniciar</button>
     </div>
   </div>
 </div>
@@ -457,7 +553,27 @@
   const WS_BASE  = `${WS_PROTO}//${location.host}${_basePath}`;
   let currentJob = { d: null, v: null };
   let ws = { d: null, v: null };
-  let selectedFile = null;
+  let selectedFile  = null;
+  let _dEtiqueta    = '';   // etiqueta seleccionada: '' | '9AM' | '12AM' | 'DPL' | 'STD'
+
+  function dSelEtiqueta(btn) {
+    const val = btn.dataset.val;
+    if (_dEtiqueta === val) {
+      // segundo clic = deseleccionar
+      _dEtiqueta = '';
+      btn.classList.remove('active');
+    } else {
+      _dEtiqueta = val;
+      document.querySelectorAll('.d-etq-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+  }
+
+  function _dAmpliacionFinal() {
+    const base = document.getElementById('d-ampliacion').value.trim();
+    if (!_dEtiqueta) return base;
+    return base ? `${_dEtiqueta} ${base}` : _dEtiqueta;
+  }
 
   // ── Cola de viajes (setup pre-procesamiento) ──────────────────────────────
   // vtItems: [{numero, config:{ciudad,tipo,observaciones,pagina_inicio}}]
@@ -473,6 +589,73 @@
   let viajeQueueStartTime = null;
   let vtTimerInterval = null;  // interval para relojes de tarjetas
   let histFiltroActivo = '';
+  let histTipoFiltro   = '';   // '' | 'viaje' | 'desv'
+  let histFechaDesde   = '';
+
+  // Convierte 'YYYY-MM-DD' → 'DD/MM/YYYY'
+  function _fmtFecha(iso) {
+    if (!iso) return '';
+    const p = iso.slice(0, 10).split('-');
+    return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : iso;
+  }
+  let histFechaHasta   = '';
+
+  // ── Persistencia de jobs activos (localStorage) ───────────────────────────
+  const _JOB_KEYS = { d: 'alertran_job_d', v: 'alertran_job_v' };
+  function _jobPersist(prefix, jobId) { localStorage.setItem(_JOB_KEYS[prefix], jobId); }
+  function _jobClear(prefix)          { localStorage.removeItem(_JOB_KEYS[prefix]); }
+  function _jobLoad(prefix)           { return localStorage.getItem(_JOB_KEYS[prefix]); }
+
+  // ── Reconexión inteligente al volver a la app ────────────────────────────
+  async function intentarReconexion(prefix) {
+    const jobId = _jobLoad(prefix);
+    if (!jobId || currentJob[prefix] === jobId) return;
+
+    const path = prefix === 'd' ? 'desviaciones' : 'viajes';
+    try {
+      const r = await fetch(`${API}/${path}/estado/${jobId}`);
+      if (!r.ok) { _jobClear(prefix); return; }
+      const data = await r.json();
+
+      if (data.status === 'running' || data.status === 'pending') {
+        // Job sigue activo en el servidor — reconectar WS
+        currentJob[prefix] = jobId;
+        const startId  = prefix === 'd' ? 'btnIniciar'  : 'btnViajeIniciar';
+        const cancelId = prefix === 'd' ? 'btnCancelar' : 'btnVCancelar';
+        document.getElementById(startId).disabled  = true;
+        document.getElementById(cancelId).disabled = false;
+        // Limpiar log box para que el snapshot del WS no duplique entradas
+        document.getElementById(prefix + '-log').innerHTML = '';
+        setBadge(prefix, 'running');
+        // Reconectar WS; si falla, onclose → pollHastaFin como fallback automático
+        conectarWS(prefix, jobId);
+        toast(`🔄 Job reconectado: ${jobId.slice(0, 8)}…`, 'success');
+      } else {
+        // Job terminó mientras estábamos fuera — restaurar estado final
+        _jobClear(prefix);
+        document.getElementById(prefix + '-log').innerHTML = '';
+        (data.logs || []).forEach(l => addLog(prefix, l));
+        updateProgress(prefix, data.progress || 0);
+        updateEstado(prefix, data.estado_msg || '');
+        setBadge(prefix, data.status);
+        if (data.status === 'completed' && prefix === 'd') mostrarResultados(prefix, data.results || {});
+        resetBtn(prefix);
+        const icono = data.status === 'completed' ? '✅' : data.status === 'error' ? '❌' : '⬛';
+        toast(`${icono} Job ${jobId.slice(0, 8)} finalizó mientras saliste`, data.status === 'completed' ? 'success' : 'error');
+      }
+    } catch { /* servidor no alcanzable — mantener job_id para el próximo intento */ }
+  }
+
+  async function forzarActualizacion(prefix) {
+    const jobId = currentJob[prefix] || _jobLoad(prefix);
+    if (!jobId) { toast('No hay job activo para reconectar', 'error'); return; }
+    toast('🔄 Reconectando...', 'success');
+    // Cerrar WS actual si existe
+    if (ws[prefix]) { try { ws[prefix].close(); } catch {} }
+    // Limpiar currentJob para que intentarReconexion no lo salte
+    currentJob[prefix] = null;
+    await intentarReconexion(prefix);
+  }
 
   // ── Finalizar sesión ─────────────────────────────────────────────────────
   let _sesionConfirmTimer = null;
@@ -500,6 +683,8 @@
     // Cancelar job activo si hay uno
     if (currentJob.v && ws.v) { ws.v.close(); currentJob.v = null; }
     if (currentJob.d && ws.d) { ws.d.close(); currentJob.d = null; }
+    _jobClear('d');
+    _jobClear('v');
 
     // Limpiar cola y estado de viajes
     vtItems = [];
@@ -562,7 +747,21 @@
     setInterval(actualizarPingBotones, 30000);
     // Si no hay credenciales guardadas, abrir modal de login
     if (!_credUsuario) abrirLogin();
+    // Intentar reconectar a jobs activos de sesiones anteriores
+    intentarReconexion('d');
+    intentarReconexion('v');
+    // Monitor de carga: poll cada 15 segundos
+    pollServidorCarga();
+    setInterval(pollServidorCarga, 15000);
   }
+
+  // Reconectar al volver a la app (tab en segundo plano → primer plano)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      if (!currentJob.d) intentarReconexion('d');
+      if (!currentJob.v) intentarReconexion('v');
+    }
+  });
 
   function pingLabel(ms) {
     const p = String(ms).padStart(3, '0');
@@ -593,6 +792,37 @@
     } catch {
       document.getElementById('apiStatus').textContent = 'API no disponible';
     }
+  }
+
+  // ── Monitor de carga del servidor ─────────────────────────────────────────
+  async function pollServidorCarga() {
+    try {
+      const r = await fetch(`${API}/server/status`);
+      if (!r.ok) return;
+      const data = await r.json();
+
+      // Jobs ajenos: running pero que no son los de esta pestaña
+      const misJobs = new Set([currentJob['d'], currentJob['v']].filter(Boolean));
+      const ajenos  = data.jobs.filter(j => !misJobs.has(j.job_id));
+
+      const el    = document.getElementById('serverLoad');
+      const texto = document.getElementById('serverLoadTxt');
+
+      if (ajenos.length === 0) {
+        el.style.display = 'none';
+        return;
+      }
+
+      const desvs  = ajenos.filter(j => j.tipo === 'desviacion').length;
+      const viajes = ajenos.filter(j => j.tipo === 'viaje').length;
+      const partes = [];
+      if (desvs)  partes.push(`${desvs} desviación${desvs > 1 ? 'es' : ''}`);
+      if (viajes) partes.push(`${viajes} viaje${viajes > 1 ? 's' : ''}`);
+
+      texto.textContent = `${ajenos.length} proceso${ajenos.length > 1 ? 's' : ''} activo${ajenos.length > 1 ? 's' : ''} (${partes.join(', ')})`;
+      el.title = ajenos.map(j => `• ${j.tipo}: ${j.estado}`).join('\n');
+      el.style.display = 'flex';
+    } catch { /* servidor no disponible */ }
   }
 
   // ── Credenciales globales ─────────────────────────────────────────────────
@@ -694,7 +924,7 @@
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
     event.target.classList.add('active');
     document.getElementById('panel-' + name).classList.add('active');
-    if (name === 'historial') cargarHistorial();
+    if (name === 'historial') { cargarHistorial(); hcalInit(); }
   }
 
   function toggleFuente() {
@@ -772,6 +1002,110 @@
     }
   }
 
+  // ── Modal confirmación de proceso ─────────────────────────────────────────
+  let _procConfirmCallback = null;
+
+  function _pf(lbl, val) {
+    return `<div class="pc-field"><span class="pc-lbl">${lbl}</span><span class="pc-val">${escHtml(String(val))}</span></div>`;
+  }
+
+  function confirmarDesviaciones() {
+    const useExcel = document.getElementById('d-useExcel').checked;
+    if (!_credUsuario || !_credPassword) { abrirLogin(); toast('Inicia sesión primero', 'error'); return; }
+
+    let guias = [];
+    let guiasCount = 0;
+    if (!useExcel) {
+      const raw = document.getElementById('d-guias').value.trim();
+      guias = raw.split('\n').map(g => g.trim()).filter(Boolean);
+      guiasCount = guias.length;
+      if (!guiasCount) { toast('Ingresa al menos una guía', 'error'); return; }
+      if (guiasCount > 200) {
+        toast(`Máximo 200 guías (ingresaste ${guiasCount}). Divide el lote.`, 'error'); return;
+      }
+    } else {
+      if (!selectedFile) { toast('Selecciona un archivo Excel', 'error'); return; }
+      guiasCount = '(desde Excel)';
+    }
+
+    const ciudad    = document.getElementById('d-ciudad').value;
+    const tipo      = document.getElementById('d-tipo').value;
+    const ampliacion = _dAmpliacionFinal();
+    const navs      = document.getElementById('d-navs').value;
+
+    document.getElementById('pc-icon').textContent = '📦';
+    document.getElementById('pc-title').textContent = 'Confirmar desviación de guías';
+    document.getElementById('pc-subtitle').textContent = 'Revisa los datos antes de iniciar el proceso.';
+
+    let fields = '';
+    fields += _pf('Regional', ciudad);
+    fields += _pf('Tipo', tipo);
+    if (ampliacion) fields += _pf('Ampliación', ampliacion);
+    fields += _pf('Navegadores', navs);
+    fields += _pf('Guías', guiasCount);
+    document.getElementById('pc-fields').innerHTML = fields;
+
+    // Preview guías (máx 20)
+    if (Array.isArray(guias) && guias.length) {
+      const chips = guias.slice(0, 20).map(g => `<span class="pc-chip">${escHtml(g)}</span>`).join('');
+      const extra = guias.length > 20 ? `<span class="pc-chip pc-chip-more">+${guias.length - 20} más</span>` : '';
+      document.getElementById('pc-guias-lbl').textContent = 'Guías a procesar:';
+      document.getElementById('pc-guias-chips').innerHTML = chips + extra;
+      document.getElementById('pc-guias-preview').style.display = '';
+    } else {
+      document.getElementById('pc-guias-preview').style.display = 'none';
+    }
+
+    document.getElementById('pc-warning').style.display = 'none';
+    _procConfirmCallback = iniciarDesviaciones;
+    document.getElementById('proc-confirm-modal').style.display = 'flex';
+  }
+
+  function confirmarViaje() {
+    if (!_credUsuario || !_credPassword) { abrirLogin(); toast('Inicia sesión primero', 'error'); return; }
+    if (!vtItems.length) { toast('Agrega al menos un viaje a la cola', 'error'); return; }
+
+    const ciudad = document.getElementById('v-ciudad').value;
+    const tipo   = document.getElementById('v-tipo').value;
+    const obs    = document.getElementById('v-obs').value;
+    const navs   = document.getElementById('v-navs').value;
+    const pagina = document.getElementById('v-pagina').value;
+
+    document.getElementById('pc-icon').textContent = '🚚';
+    document.getElementById('pc-title').textContent = 'Confirmar procesamiento de viajes';
+    document.getElementById('pc-subtitle').textContent = 'Revisa los datos antes de iniciar el proceso.';
+
+    let fields = '';
+    fields += _pf('Regional', ciudad);
+    fields += _pf('Cód. desviación', tipo);
+    if (obs) fields += _pf('Observaciones', obs);
+    fields += _pf('Navegadores', navs);
+    fields += _pf('Pág. inicio', pagina);
+    fields += _pf('Viajes en cola', vtItems.length);
+    document.getElementById('pc-fields').innerHTML = fields;
+
+    // Preview viajes
+    const chips = vtItems.slice(0, 20).map(i => `<span class="pc-chip">${escHtml(String(i.numero))}</span>`).join('');
+    const extra = vtItems.length > 20 ? `<span class="pc-chip pc-chip-more">+${vtItems.length - 20} más</span>` : '';
+    document.getElementById('pc-guias-chips').innerHTML = chips + extra;
+    document.getElementById('pc-guias-preview').style.display = '';
+    document.getElementById('pc-guias-lbl').textContent = 'Viajes a procesar:';
+
+    document.getElementById('pc-warning').style.display = 'none';
+    _procConfirmCallback = iniciarViaje;
+    document.getElementById('proc-confirm-modal').style.display = 'flex';
+  }
+
+  function procConfirmCancelar() {
+    document.getElementById('proc-confirm-modal').style.display = 'none';
+    _procConfirmCallback = null;
+  }
+
+  function procConfirmAceptar() {
+    document.getElementById('proc-confirm-modal').style.display = 'none';
+    if (_procConfirmCallback) { _procConfirmCallback(); _procConfirmCallback = null; }
+  }
+
   // ── Iniciar Desviaciones ──────────────────────────────────────────────────
   async function iniciarDesviaciones() {
     const useExcel = document.getElementById('d-useExcel').checked;
@@ -783,6 +1117,7 @@
     resetMonitor('d');
     document.getElementById('btnIniciar').disabled = true;
     document.getElementById('btnCancelar').disabled = false;
+    document.getElementById('d-refresh').disabled = false;
 
     let jobId;
     try {
@@ -794,7 +1129,7 @@
         fd.append('password', password);
         fd.append('ciudad', document.getElementById('d-ciudad').value);
         fd.append('tipo', document.getElementById('d-tipo').value);
-        fd.append('ampliacion', document.getElementById('d-ampliacion').value);
+        fd.append('ampliacion', _dAmpliacionFinal());
         fd.append('num_navegadores', document.getElementById('d-navs').value);
         fd.append('headless', document.getElementById('d-headless').checked);
         const r = await fetch(`${API}/desviaciones/procesar-excel`, { method: 'POST', body: fd });
@@ -808,11 +1143,15 @@
         const guiasRaw = document.getElementById('d-guias').value.trim();
         const guias = guiasRaw.split('\n').map(g => g.trim()).filter(Boolean);
         if (!guias.length) { toast('Ingresa al menos una guía', 'error'); resetBtn('d'); return; }
+        if (guias.length > 200) {
+          toast(`Máximo 200 guías por proceso (ingresaste ${guias.length}). Divide el lote.`, 'error');
+          resetBtn('d'); return;
+        }
         const body = {
           usuario, password,
           ciudad: document.getElementById('d-ciudad').value,
           tipo: document.getElementById('d-tipo').value,
-          ampliacion: document.getElementById('d-ampliacion').value,
+          ampliacion: _dAmpliacionFinal(),
           guias_list: guias,
           num_navegadores: parseInt(document.getElementById('d-navs').value),
           headless: document.getElementById('d-headless').checked,
@@ -834,6 +1173,8 @@
     }
 
     currentJob.d = jobId;
+    _jobPersist('d', jobId);
+    _pedirPermisoNotif();
     toast(`Job iniciado: ${jobId.slice(0,8)}...`, 'success');
     conectarWS('d', jobId);
   }
@@ -966,6 +1307,7 @@
     resetMonitor('v');
     document.getElementById('btnViajeIniciar').disabled = true;
     document.getElementById('btnVCancelar').disabled = false;
+    document.getElementById('v-refresh').disabled = false;
 
     // Timer de relojes
     clearInterval(vtTimerInterval);
@@ -1010,6 +1352,8 @@
       }
       const data = await r.json();
       currentJob.v = data.job_id;
+      _jobPersist('v', data.job_id);
+      if (viajeQueueIdx === 0) _pedirPermisoNotif();
       toast(`Viaje ${num} iniciado (${viajeQueueIdx + 1}/${viajeQueueTotal})`, 'success');
       conectarWS('v', data.job_id);
     } catch(e) {
@@ -1023,9 +1367,11 @@
 
   function finalizarColaViajes() {
     clearInterval(vtTimerInterval);
-    const completados = Object.values(viajeResultados).filter(r => r.status === 'completed').length;
-    const errores     = Object.values(viajeResultados).filter(r => r.status === 'error').length;
-    const cancelados  = Object.values(viajeResultados).filter(r => r.status === 'cancelled').length;
+    // Contar solo los viajes de la cola actual para evitar que entradas
+    // de corridas anteriores (misma sesión) inflen los contadores y alteren el badge.
+    const completados = viajeQueue.filter(n => viajeResultados[n]?.status === 'completed').length;
+    const errores     = viajeQueue.filter(n => viajeResultados[n]?.status === 'error').length;
+    const cancelados  = viajeQueue.filter(n => viajeResultados[n]?.status === 'cancelled').length;
     const secs = Math.floor((Date.now() - viajeQueueStartTime) / 1000);
     const tiempoStr = `${String(Math.floor(secs/3600)).padStart(2,'0')}:${String(Math.floor((secs%3600)/60)).padStart(2,'0')}:${String(secs%60).padStart(2,'0')}`;
 
@@ -1049,6 +1395,8 @@
     document.getElementById('vr-errores').textContent = errores + cancelados;
     document.getElementById('vr-tiempo').textContent = tiempoStr;
     toast(`Cola completada: ${completados}/${viajeQueueTotal}`, completados === viajeQueueTotal ? 'success' : 'error');
+    const notifTitulo = completados === viajeQueueTotal ? '✅ Viajes completados' : `⚠️ Cola con errores`;
+    _notificar(notifTitulo, `${completados}/${viajeQueueTotal} viajes OK · ${tiempoStr}`);
   }
 
   function vtReintentar() {
@@ -1377,6 +1725,7 @@
         break;
       case 'finalizado':
         currentJob[prefix] = null;  // evita que onclose dispare pollHastaFin
+        _jobClear(prefix);
         ws[prefix] && ws[prefix].close();
         if (prefix === 'v') {
           const num = viajeQueue[viajeQueueIdx];
@@ -1414,10 +1763,13 @@
           mostrarResultados(prefix, evt.data);
           resetBtn(prefix);
           toast('✅ Proceso completado', 'success');
+          _notificar('✅ Desviaciones completadas',
+            `${evt.data.desviaciones_creadas ?? 0} creadas · ${evt.data.tiempo_total ?? ''}`);
         }
         break;
       case 'cancelado':
         currentJob[prefix] = null;  // evita que onclose dispare pollHastaFin
+        _jobClear(prefix);
         setBadge(prefix, 'cancelled');
         if (prefix === 'v') {
           const num = viajeQueue[viajeQueueIdx];
@@ -1440,6 +1792,7 @@
         } else {
           resetBtn(prefix);
           toast('⬛ Proceso cancelado', 'error');
+          _notificar('⬛ Desviaciones canceladas', 'El proceso fue cancelado manualmente');
         }
         break;
       case 'error': {
@@ -1461,6 +1814,7 @@
           viajeQueueIdx++;
           renderVtProcess();
           currentJob[prefix] = null;  // evita que onclose dispare pollHastaFin
+          _jobClear(prefix);
           ws[prefix] && ws[prefix].close();
           toast('Error en viaje ' + (num || '') + ': ' + errMsg, 'error');
           if (viajeQueueIdx < viajeQueueTotal) {
@@ -1470,8 +1824,11 @@
             finalizarColaViajes();
           }
         } else {
+          currentJob[prefix] = null;
+          _jobClear(prefix);
           resetBtn(prefix);
           toast('Error: ' + errMsg, 'error');
+          _notificar('❌ Error en Desviaciones', errMsg);
         }
         break;
       }
@@ -1479,7 +1836,7 @@
   }
 
   async function pollHastaFin(prefix, jobId, intentos = 0, logOffset = 0) {
-    if (intentos > 72) { resetBtn(prefix); return; } // máx ~6 min
+    if (intentos > 72) { _jobClear(prefix); resetBtn(prefix); return; } // máx ~6 min
     const path = prefix === 'd' ? 'desviaciones' : 'viajes';
     try {
       const r = await fetch(`${API}/${path}/estado/${jobId}`);
@@ -1496,6 +1853,7 @@
 
       if (data.status === 'completed') {
         currentJob[prefix] = null;
+        _jobClear(prefix);
         if (prefix === 'd') mostrarResultados(prefix, data.results);
         else if (prefix === 'v') {
           const num = viajeQueue[viajeQueueIdx];
@@ -1509,6 +1867,7 @@
         resetBtn(prefix);
       } else if (data.status === 'error' || data.status === 'cancelled') {
         currentJob[prefix] = null;
+        _jobClear(prefix);
         if (prefix === 'v') {
           const num = viajeQueue[viajeQueueIdx];
           if (num) {
@@ -1605,6 +1964,7 @@
   function updateProgress(prefix, pct) {
     document.getElementById(prefix + '-bar').style.width = pct + '%';
     document.getElementById(prefix + '-pct').textContent = pct + '%';
+    _actualizarTitulo();
   }
 
   function updateEstado(prefix, msg) {
@@ -1616,6 +1976,49 @@
     const labels = { pending:'● Inactivo', running:'● Procesando', completed:'● Completado', error:'● Error', cancelled:'● Cancelado' };
     badge.className = 'status-badge ' + status;
     badge.textContent = labels[status] || status;
+    // Tab dot — pulsa mientras el job está activo
+    const dot = document.getElementById('tab-dot-' + prefix);
+    if (dot) dot.classList.toggle('visible', status === 'running');
+    _actualizarTitulo();
+  }
+
+  // ── Notificaciones del navegador ──────────────────────────────────────────
+  function _pedirPermisoNotif() {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }
+  function _notificar(titulo, cuerpo) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    try { new Notification(titulo, { body: cuerpo, icon: '/static/icons/icon-192.png' }); }
+    catch { /* navegador no soporta o bloqueó */ }
+  }
+
+  // ── Título dinámico del navegador ─────────────────────────────────────────
+  const _TITLE_BASE = 'ALERTRAN SGD';
+  function _actualizarTitulo() {
+    const dRunning = document.getElementById('d-badge')?.classList.contains('running');
+    const vRunning = document.getElementById('v-badge')?.classList.contains('running');
+
+    if (!dRunning && !vRunning) {
+      document.title = _TITLE_BASE;
+      if ('clearAppBadge' in navigator) navigator.clearAppBadge().catch(() => {});
+      return;
+    }
+
+    const partes = [];
+    if (dRunning) {
+      const pct = document.getElementById('d-pct')?.textContent || '';
+      partes.push(`Desviaciones ${pct}`);
+    }
+    if (vRunning) {
+      const estado = document.getElementById('v-estado')?.textContent || 'Procesando';
+      partes.push(estado);
+    }
+    document.title = `⏳ ${partes.join(' · ')} — ${_TITLE_BASE}`;
+
+    // Sincronizar badge del ícono de la app (Badging API — visible en SO aunque el navegador esté minimizado)
+    if ('setAppBadge' in navigator) navigator.setAppBadge().catch(() => {});
   }
 
   function resetBtn(prefix) {
@@ -1626,6 +2029,8 @@
       document.getElementById('btnViajeIniciar').disabled = false;
       document.getElementById('btnVCancelar').disabled = true;
     }
+    const refBtn = document.getElementById(prefix + '-refresh');
+    if (refBtn) refBtn.disabled = true;
   }
 
   function resetMonitor(prefix) {
@@ -1682,6 +2087,157 @@
     renderHistorial(_histJobs);
   }
 
+  function histFiltrarTipo(tipo) {
+    histTipoFiltro = tipo;
+    ['all','viaje','desv'].forEach(t => {
+      document.getElementById('htf-' + t)?.classList.toggle('active', t === (tipo || 'all'));
+    });
+    renderHistorial(_histJobs);
+  }
+
+  function histFiltrarFechas() {
+    renderHistorial(_histJobs);
+  }
+
+  function histLimpiarFechas() {
+    histFechaDesde = '';
+    histFechaHasta = '';
+    renderHistorial(_histJobs);
+  }
+
+  // ── Calendario de rango (drag to select) ─────────────────────────────────
+  let _hcalAnio    = new Date().getFullYear();
+  let _hcalMes     = new Date().getMonth(); // 0-based
+  let _hcalSel1    = null; // ISO YYYY-MM-DD inicio confirmado
+  let _hcalSel2    = null; // ISO YYYY-MM-DD fin confirmado
+  let _hcalDrag    = false; // ¿se está arrastrando?
+  let _hcalDragEnd = null; // extremo móvil durante drag
+
+  const _MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
+                  'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+  // Registrar mouseup global para confirmar drag
+  document.addEventListener('mouseup', function() {
+    if (!_hcalDrag) return;
+    _hcalDrag = false;
+    if (_hcalDragEnd && _hcalDragEnd !== _hcalSel1) {
+      if (_hcalDragEnd < _hcalSel1) { _hcalSel2 = _hcalSel1; _hcalSel1 = _hcalDragEnd; }
+      else                           { _hcalSel2 = _hcalDragEnd; }
+    }
+    _hcalDragEnd = null;
+    histFechaDesde = _hcalSel1;
+    histFechaHasta = _hcalSel2 || _hcalSel1;
+    _hcalActualizarInfo();
+    histFiltrarFechas();
+    hcalRenderizar();
+  });
+
+  function hcalInit() {
+    const sel = document.getElementById('hcal-mes');
+    if (!sel) return;
+    sel.innerHTML = _MESES.map((m,i) => `<option value="${i}">${m}</option>`).join('');
+    const selA = document.getElementById('hcal-anio');
+    const y = new Date().getFullYear();
+    for (let i = y - 3; i <= y + 1; i++) {
+      selA.innerHTML += `<option value="${i}">${i}</option>`;
+    }
+    hcalRenderizar();
+  }
+
+  function hcalNavMes(delta) {
+    _hcalMes += delta;
+    if (_hcalMes > 11) { _hcalMes = 0; _hcalAnio++; }
+    if (_hcalMes < 0)  { _hcalMes = 11; _hcalAnio--; }
+    hcalRenderizar();
+  }
+
+  function hcalIrA() {
+    _hcalMes  = parseInt(document.getElementById('hcal-mes').value);
+    _hcalAnio = parseInt(document.getElementById('hcal-anio').value);
+    hcalRenderizar();
+  }
+
+  function hcalFmt(y, m, d) {
+    return `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  }
+
+  function hcalRenderizar() {
+    document.getElementById('hcal-mes').value  = _hcalMes;
+    document.getElementById('hcal-anio').value = _hcalAnio;
+
+    const grid = document.getElementById('hcal-grid');
+    if (!grid) return;
+
+    const primero   = new Date(_hcalAnio, _hcalMes, 1);
+    const totalDias = new Date(_hcalAnio, _hcalMes + 1, 0).getDate();
+    let inicioOffset = primero.getDay() - 1;
+    if (inicioOffset < 0) inicioOffset = 6;
+
+    // Calcular extremos del rango a mostrar
+    const e1 = _hcalDrag ? _hcalSel1    : _hcalSel1;
+    const e2 = _hcalDrag ? _hcalDragEnd : _hcalSel2;
+    const rangeStart = e1 && e2 ? (e1 < e2 ? e1 : e2) : e1;
+    const rangeEnd   = e1 && e2 ? (e1 < e2 ? e2 : e1) : null;
+
+    const today = new Date().toISOString().slice(0,10);
+    let html = '';
+    for (let i = 0; i < inicioOffset; i++) html += '<span class="hcal-day hcal-empty"></span>';
+
+    for (let d = 1; d <= totalDias; d++) {
+      const iso = hcalFmt(_hcalAnio, _hcalMes, d);
+      let cls = 'hcal-day';
+      if (iso === rangeStart && !rangeEnd)                      cls += ' hcal-sel1';
+      if (iso === rangeStart && rangeEnd)                       cls += ' hcal-range-start';
+      if (iso === rangeEnd   && rangeStart)                     cls += ' hcal-range-end';
+      if (rangeStart && rangeEnd && iso > rangeStart && iso < rangeEnd) cls += ' hcal-in-range';
+      if (iso === today) cls += ' hcal-today';
+
+      html += `<span class="${cls}" data-iso="${iso}"
+        onmousedown="hcalDragStart('${iso}')"
+        onmouseenter="hcalDragMove('${iso}')">${d}</span>`;
+    }
+    grid.innerHTML = html;
+  }
+
+  function hcalDragStart(iso) {
+    // Iniciar drag: resetear selección anterior y marcar inicio
+    _hcalSel1    = iso;
+    _hcalSel2    = null;
+    _hcalDragEnd = null;
+    _hcalDrag    = true;
+    hcalRenderizar();
+  }
+
+  function hcalDragMove(iso) {
+    if (!_hcalDrag) return;
+    if (iso !== _hcalDragEnd) {
+      _hcalDragEnd = iso;
+      hcalRenderizar();
+    }
+  }
+
+  function hcalLimpiar() {
+    _hcalSel1 = null; _hcalSel2 = null; _hcalDrag = false; _hcalDragEnd = null;
+    histFechaDesde = ''; histFechaHasta = '';
+    _hcalActualizarInfo();
+    histFiltrarFechas();
+    hcalRenderizar();
+  }
+
+  function _hcalActualizarInfo() {
+    const el = document.getElementById('hcal-rango-info');
+    if (!el) return;
+    if (histFechaDesde && histFechaHasta && histFechaDesde !== histFechaHasta) {
+      el.style.display = '';
+      el.innerHTML = `📅 Filtrando: <strong>${_fmtFecha(histFechaDesde)}</strong> — <strong>${_fmtFecha(histFechaHasta)}</strong>`;
+    } else if (histFechaDesde) {
+      el.style.display = '';
+      el.innerHTML = `📅 Filtrando: <strong>${_fmtFecha(histFechaDesde)}</strong>`;
+    } else {
+      el.style.display = 'none';
+    }
+  }
+
   async function cargarHistorial() {
     try {
       const r = await fetch(`${API}/jobs`);
@@ -1695,45 +2251,184 @@
       document.getElementById('hs-running').textContent   = cnt.running;
       document.getElementById('hs-error').textContent     = cnt.error;
       document.getElementById('hs-cancelled').textContent = cnt.cancelled;
+      // Mostrar rango de fechas del historial
+      const lbl = document.getElementById('hist-ttl-label');
+      if (lbl) {
+        const fechas = _histJobs
+          .map(j => j.created_at?.slice(0, 10))
+          .filter(Boolean)
+          .sort();
+        if (fechas.length) {
+          const desde = fechas[fechas.length - 1]; // más reciente
+          const hasta = fechas[0];                  // más antiguo
+          lbl.textContent = desde === hasta
+            ? `(${desde})`
+            : `(${hasta} → ${desde})`;
+        } else {
+          lbl.textContent = '';
+        }
+      }
       renderHistorial(_histJobs);
     } catch(e) {
       toast('Error al cargar historial', 'error');
     }
   }
 
+  async function exportarHistorial() {
+    try {
+      toast('⏳ Generando Excel...', 'success');
+      const r = await fetch(`${API}/historial/exportar`);
+      if (!r.ok) { toast('Error al exportar historial', 'error'); return; }
+      const blob = await r.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      // Usar nombre del header Content-Disposition si viene
+      const cd = r.headers.get('Content-Disposition') || '';
+      const m  = cd.match(/filename="([^"]+)"/);
+      a.download = m ? m[1] : `historial_alertran.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast('✅ Historial exportado', 'success');
+    } catch(e) {
+      toast('Error al exportar historial', 'error');
+    }
+  }
+
+  // ── Sección de guías procesadas dentro del card expandido ────────────────
+  function _renderGuiasSection(j) {
+    const res = j.results || {};
+    const ok  = res.guias_exitosas_lista  || [];
+    const ent = res.guias_ent_lista       || [];
+    const err = res.guias_con_error       || [];
+    if (!ok.length && !ent.length && !err.length) return '';
+
+    const fila = (icono, cls, lista) =>
+      `<div class="hj-guias-fila">
+         <span class="hj-guias-lbl ${cls}">${icono} ${lista.length}</span>
+         <span class="hj-guias-chips">${lista.map(g => `<span class="hj-chip ${cls}">${escHtml(String(g))}</span>`).join('')}</span>
+       </div>`;
+
+    return `
+      <div class="hj-guias-section">
+        <div class="hj-guias-header">
+          <span class="hj-guias-title">Guías procesadas</span>
+          <button class="hj-csv-btn" onclick="event.stopPropagation(); descargarGuiasCSV('${j.job_id}')"
+            title="Descargar CSV">📥 CSV</button>
+        </div>
+        ${ok.length  ? fila('✅', 'ok',   ok)  : ''}
+        ${ent.length ? fila('📦', 'ent',  ent) : ''}
+        ${err.length ? fila('❌', 'err',  err) : ''}
+      </div>`;
+  }
+
+  function descargarGuiasCSV(jobId) {
+    const j   = _histJobs.find(x => x.job_id === jobId);
+    if (!j) return;
+    const res = j.results || {};
+    const ok  = (res.guias_exitosas_lista || []).map(g => [g, 'Desviada',    res.ciudad || '', res.tipo || '', res.ampliacion || '']);
+    const ent = (res.guias_ent_lista      || []).map(g => [g, 'ENT',          res.ciudad || '', res.tipo || '', '']);
+    const err = (res.guias_con_error      || []).map(g => [g, 'Error',        res.ciudad || '', res.tipo || '', '']);
+    const filas = [['Guia','Estado','Ciudad','Tipo','Ampliacion'], ...ok, ...ent, ...err];
+    const csv   = filas.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+    const blob  = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url   = URL.createObjectURL(blob);
+    const a     = document.createElement('a');
+    a.href      = url;
+    a.download  = `guias_${jobId.slice(0,8)}_${(j.created_at||'').slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  }
+
   function renderHistorial(jobs) {
     const container = document.getElementById('historial-list');
-    const filtered  = histFiltroActivo ? jobs.filter(j => j.status === histFiltroActivo) : jobs;
+    let filtered = histFiltroActivo ? jobs.filter(j => j.status === histFiltroActivo) : jobs;
+    if (histTipoFiltro) {
+      filtered = filtered.filter(j => {
+        const r = j.results || {};
+        const esV = r._tipo_job === 'viaje' || r.numero_viaje != null ||
+                    /procesando viaje/i.test(j.estado_msg || '');
+        return histTipoFiltro === 'viaje' ? esV : !esV;
+      });
+    }
+    if (histFechaDesde) {
+      filtered = filtered.filter(j => (j.created_at || '') >= histFechaDesde);
+    }
+    if (histFechaHasta) {
+      filtered = filtered.filter(j => (j.created_at || '') <= histFechaHasta + 'T23:59:59');
+    }
     if (!filtered.length) {
       container.innerHTML = '<div class="empty-state">Sin jobs para este filtro.</div>';
       return;
     }
     const statusIcon  = { pending:'⏳', running:'🔄', completed:'✅', error:'❌', cancelled:'⬛' };
     const statusLabel = { pending:'Pendiente', running:'Procesando', completed:'Completado', error:'Error', cancelled:'Cancelado' };
+    const _f = (lbl, val, cls = '') =>
+      `<span class="hj-field${cls ? ' ' + cls : ''}"><span class="hj-lbl">${lbl}</span><span class="hj-val">${escHtml(String(val))}</span></span>`;
+
     container.innerHTML = filtered.map(j => {
-      const res = j.results || {};
-      const chips = [];
-      if (res.desviaciones_creadas != null) chips.push(`✅ ${res.desviaciones_creadas} creadas`);
-      if (res.guias_ent != null)            chips.push(`📦 ${res.guias_ent} ENT`);
-      if (res.errores != null)              chips.push(`❌ ${res.errores} errores`);
-      if (res.paginas_procesadas != null)   chips.push(`📄 ${res.paginas_procesadas}/${res.total_paginas ?? '?'} págs`);
-      if (res.tiempo_total)                 chips.push(`⏱️ ${res.tiempo_total}`);
+      const res       = j.results || {};
+      const estadoMsg = j.estado_msg || '';
+      const esViaje   = res._tipo_job === 'viaje' || res.numero_viaje != null ||
+                        /procesando viaje/i.test(estadoMsg);
+      const viajeNumFallback = estadoMsg.match(/viaje\s+(\S+)/i)?.[1] || '';
+      const done = j.status === 'completed' || j.status === 'error' || j.status === 'cancelled';
+
+      // ── Campos según tipo ──────────────────────────────────────────────────
+      let campos = '';
+      if (esViaje) {
+        const viajeNum = res.numero_viaje ? String(res.numero_viaje) : viajeNumFallback;
+        if (res.ciudad)        campos += _f('Regional',      res.ciudad);
+        if (viajeNum)          campos += _f('Nº Viaje',      viajeNum);
+        if (res.tipo)          campos += _f('Cód. desv.',    res.tipo);
+        if (done && res.paginas_procesadas != null)
+                               campos += _f('Páginas', `${res.paginas_procesadas}/${res.total_paginas ?? '?'}`);
+        if (res.observaciones) campos += _f('Observaciones', res.observaciones, 'wrap');
+      } else {
+        if (res.ciudad)        campos += _f('Regional',  res.ciudad);
+        if (res.tipo)          campos += _f('Tipo',      res.tipo);
+        if (done) {
+          if (res.desviaciones_creadas != null)
+                               campos += _f('Creadas',   res.desviaciones_creadas, 'ok');
+          if (res.guias_ent)   campos += _f('ENT',       res.guias_ent);
+          if (res.errores)     campos += _f('Errores',   res.errores, 'err');
+          if (res.tiempo_total) campos += _f('Tiempo',   res.tiempo_total);
+        } else {
+          if (estadoMsg)       campos += _f('Estado',    estadoMsg, 'wrap');
+        }
+        if (res.ampliacion)    campos += _f('Ampliación', res.ampliacion, 'wrap');
+      }
+
+      // Botón reprocesar
+      const puedeReprocesar = Array.isArray(res.guias_con_error) && res.guias_con_error.length > 0;
+      const btnReprocesar = puedeReprocesar
+        ? `<button class="hj-repro" title="Reprocesar guías con error"
+             onclick="event.stopPropagation(); histReprocesar('${j.job_id}')">
+             🔁 ${res.guias_con_error.length} error${res.guias_con_error.length > 1 ? 'es' : ''}
+           </button>`
+        : '';
+
+      const tipoClass = esViaje ? 't-viaje' : 't-desv';
       return `
-      <div class="hist-job" id="hj-${j.job_id}">
+      <div class="hist-job ${tipoClass}" id="hj-${j.job_id}">
         <div class="hist-job-header" onclick="toggleHistJob('${j.job_id}')">
-          <span class="hj-icon">${statusIcon[j.status] || '•'}</span>
-          <div class="hj-info">
-            <div class="hj-type">${j.estado_msg || j.job_id.slice(0,8)}</div>
-            <div class="hj-id">${j.job_id}</div>
+          <div class="hj-row-top">
+            <span class="hj-icon">${statusIcon[j.status] || '•'}</span>
+            <span class="hj-tag ${tipoClass}">${esViaje ? '🚚 Viaje' : '📦 Desviación' + (() => { const etq = (res.ampliacion||'').trim().split(' ')[0]; return ['9AM','12AM','DPL','STD'].includes(etq) ? ' · ' + etq : ''; })()}</span>
+            <span class="hj-flex1"></span>
+            ${btnReprocesar}
+            <div class="status-badge ${j.status}">${statusLabel[j.status] || j.status}</div>
+            <span class="hj-time">${j.created_at ? _fmtFecha(j.created_at) + ' ' + j.created_at.slice(11,19) : ''}</span>
+            <span class="hj-arrow">▶</span>
+            <button class="hj-del" title="Eliminar del historial"
+              onclick="event.stopPropagation(); histEliminarConfirmar('${j.job_id}')">✕</button>
           </div>
-          <div class="status-badge ${j.status}">${statusLabel[j.status] || j.status}</div>
-          <span class="hj-time">${j.created_at?.slice(11,19) || ''}</span>
-          <span class="hj-arrow">▶</span>
-          <button class="hj-del" title="Eliminar del historial"
-            onclick="event.stopPropagation(); histEliminar('${j.job_id}')">✕</button>
+          <div class="hj-fields">${campos}</div>
         </div>
         <div class="hist-job-body">
-          ${chips.length ? `<div class="hist-job-results">${chips.map(c=>`<span class="hj-res-chip">${c}</span>`).join('')}</div>` : ''}
+          ${_renderGuiasSection(j)}
           <div class="hist-job-logs">${(j.logs||[]).map(l=>`<div class="${classifyLog(l)}">${escHtml(l)}</div>`).join('') || '<span style="color:var(--muted)">Sin logs.</span>'}</div>
         </div>
       </div>`;
@@ -1743,6 +2438,40 @@
   function toggleHistJob(jobId) {
     const el = document.getElementById('hj-' + jobId);
     if (el) el.classList.toggle('open');
+  }
+
+  function histReprocesar(jobId) {
+    const job = _histJobs.find(j => j.job_id === jobId);
+    if (!job) return;
+    const res = job.results || {};
+    const guias = res.guias_con_error || [];
+    if (!guias.length) return;
+
+    // Cambiar a pestaña Desviaciones
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.querySelector('.tab[onclick="switchTab(\'desviaciones\')"]')?.classList.add('active');
+    document.getElementById('panel-desviaciones').classList.add('active');
+
+    // Pre-cargar configuración del job original
+    if (res.ciudad) {
+      const sel = document.getElementById('d-ciudad');
+      if ([...sel.options].some(o => o.value === res.ciudad)) sel.value = res.ciudad;
+    }
+    if (res.tipo) {
+      const sel = document.getElementById('d-tipo');
+      if ([...sel.options].some(o => o.value === res.tipo)) sel.value = res.tipo;
+    }
+    if (res.ampliacion != null) {
+      document.getElementById('d-ampliacion').value = res.ampliacion;
+    }
+
+    // Poner las guías con error en el textarea (modo manual)
+    document.getElementById('d-useExcel').checked = false;
+    toggleFuente();
+    document.getElementById('d-guias').value = guias.join('\n');
+
+    toast(`${guias.length} guía(s) con error cargadas para reprocesar`, 'success');
   }
 
   function histEliminar(jobId) {
@@ -1760,6 +2489,36 @@
     document.getElementById('hs-error').textContent     = cnt.error;
     document.getElementById('hs-cancelled').textContent = cnt.cancelled;
     renderHistorial(_histJobs);
+  }
+
+  function histEliminarConfirmar(jobId) {
+    const job = _histJobs.find(j => j.job_id === jobId);
+    const res = job?.results || {};
+    const desc = res.numero_viaje
+      ? `el viaje ${res.numero_viaje}`
+      : (res.ciudad ? `el proceso de ${res.ciudad}` : 'este registro');
+    _showConfirm(
+      `¿Eliminar ${desc} del historial?`,
+      'Esta acción no se puede deshacer.',
+      () => histEliminar(jobId)
+    );
+  }
+
+  // ── Modal de confirmación genérico ────────────────────────────────────────
+  let _confirmCallback = null;
+  function _showConfirm(titulo, subtitulo, onConfirm) {
+    document.getElementById('confirm-titulo').textContent    = titulo;
+    document.getElementById('confirm-subtitulo').textContent = subtitulo;
+    _confirmCallback = onConfirm;
+    document.getElementById('confirm-modal').style.display = 'flex';
+  }
+  function _confirmAceptar() {
+    document.getElementById('confirm-modal').style.display = 'none';
+    if (_confirmCallback) { _confirmCallback(); _confirmCallback = null; }
+  }
+  function _confirmCancelar() {
+    document.getElementById('confirm-modal').style.display = 'none';
+    _confirmCallback = null;
   }
 
   function escHtml(s) {
@@ -1780,6 +2539,7 @@
       document.getElementById('vt-modal').style.display = 'none';
       vtModalNum = null;
       cpDescartar();
+      _confirmCancelar();
     }
   });
 

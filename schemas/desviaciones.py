@@ -1,7 +1,9 @@
 # schemas/desviaciones.py
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from config.constants import CIUDADES, TIPOS_INCIDENCIA
+
+MAX_GUIAS = 200
 
 
 class DesviacionesRequest(BaseModel):
@@ -12,8 +14,18 @@ class DesviacionesRequest(BaseModel):
     ampliacion: str = Field(default="", description="Texto de ampliación/observaciones")
     guias_list: Optional[List[str]] = Field(
         default=None,
-        description="Lista de guías manual (alternativa al Excel)"
+        description=f"Lista de guías manual (máximo {MAX_GUIAS} por proceso)"
     )
+
+    @field_validator("guias_list")
+    @classmethod
+    def validar_limite_guias(cls, v):
+        if v is not None and len(v) > MAX_GUIAS:
+            raise ValueError(
+                f"Máximo {MAX_GUIAS} guías por proceso (recibidas: {len(v)}). "
+                f"Divida el lote en grupos de {MAX_GUIAS}."
+            )
+        return v
     num_navegadores: int = Field(default=1, ge=1, le=100, description="Número de navegadores paralelos")
     headless: bool = Field(default=True, description="Ejecutar navegadores en modo headless")
     preview: bool = Field(default=False, description="Solo validar credenciales sin procesar guías")

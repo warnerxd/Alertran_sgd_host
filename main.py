@@ -95,6 +95,27 @@ async def obtener_config():
 async def listar_jobs():
     """Lista todos los jobs activos e históricos de esta sesión."""
     return job_manager.listar_jobs()
+
+
+
+@app.get("/server/status", tags=["Server"])
+async def server_status():
+    """Estado de carga del servidor: jobs activos y tipo."""
+    jobs = job_manager.listar_jobs()
+    running = [j for j in jobs if j["status"] == "running"]
+    return {
+        "running": len(running),
+        "jobs": [
+            {
+                "job_id": j["job_id"],
+                "tipo":   j["results"].get("_tipo_job", "desconocido"),
+                "estado": j["estado_msg"],
+            }
+            for j in running
+        ],
+    }
+
+
 from fastapi.responses import FileResponse
 
 @app.get("/{full_path:path}")
