@@ -11,3 +11,6 @@ openpyxl>=3.1.2
 
 # Credenciales seguras
 keyring>=24.0.0
+
+# Testing / utilidades
+websockets>=12.0

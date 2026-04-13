@@ -82,6 +82,15 @@ async def manifest():
     return FileResponse("static/manifest.json", media_type="application/manifest+json")
 
 
+@app.get("/sw.js", include_in_schema=False)
+async def service_worker():
+    return FileResponse(
+        "static/sw.js",
+        media_type="application/javascript",
+        headers={"Service-Worker-Allowed": "/alertransgd/"},
+    )
+
+
 @app.get("/config", tags=["Configuración"])
 async def obtener_config():
     """Devuelve las listas de ciudades y tipos de incidencia disponibles."""
